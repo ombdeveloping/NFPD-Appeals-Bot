@@ -2,7 +2,7 @@ import asyncio
 
 import discord
 
-from constants import COLOUR_CLOSED
+from config import COLOUR_CLOSED
 
 # Statuses that mean the verdict has already been actioned by staff.
 _ACTIONED_STATUSES = {"actioned_unban", "actioned_close"}

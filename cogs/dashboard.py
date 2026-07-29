@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from constants import COLOUR_PRIMARY
+from config import COLOUR_PRIMARY
 
 
 class DashboardCog(commands.Cog):

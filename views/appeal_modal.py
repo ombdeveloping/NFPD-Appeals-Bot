@@ -1,6 +1,6 @@
 import discord
 
-from constants import COLOUR_INFO, COLOUR_PRIMARY
+from config import COLOUR_INFO, COLOUR_PRIMARY
 
 
 class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
