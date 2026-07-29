@@ -4,7 +4,14 @@ import os
 import discord
 from discord.ext import commands
 
-from constants import APPROVED_GUILD_IDS, DEVELOPER_ID, UNAUTHORISED_GUILD_MESSAGE
+from config import (
+    APPROVED_GUILD_IDS,
+    DATABASE_URL,
+    DEVELOPER_IDS,
+    DISCORD_TOKEN,
+    LEAVE_UNAPPROVED_GUILDS,
+    UNAUTHORISED_GUILD_MESSAGE,
+)
 from database import Database
 from cogs.appeals import AppealsCog
 from cogs.dashboard import DashboardCog
@@ -25,7 +32,7 @@ class AppealsBot(commands.Bot):
         self.db: Database = None
 
     async def setup_hook(self):
-        self.db = Database(os.environ["DATABASE_URL"])
+        self.db = Database(DATABASE_URL)
         await self.db.initialise()
 
         await self.add_cog(DashboardCog(self))
@@ -36,93 +43,126 @@ class AppealsBot(commands.Bot):
         logger.info("Slash commands synced.")
 
     async def on_ready(self):
-        logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
+        logger.info("Logged in as %s (%s)", self.user, self.user.id)
 
+        if not APPROVED_GUILD_IDS:
+            logger.error(
+                "\n"
+                "  *** APPROVED_GUILD_IDS IS EMPTY ***\n"
+                "  The bot will leave every server it joins.\n"
+                "  Set APPROVED_GUILD_IDS in Railway's Variables tab.\n"
+                "  Example: APPROVED_GUILD_IDS=123456789012345678,987654321098765432\n"
+            )
+
+        # Register persistent views so buttons survive restarts.
         from views.appeal_panel import AppealPanelView
         from views.voting_panel import VotingPanelView
         from views.verdict_panel import VerdictPanelView
+        from views.appeal_actions import AppealActionsView
 
         self.add_view(AppealPanelView(self))
         self.add_view(VotingPanelView(self))
         self.add_view(VerdictPanelView(self))
-        # AppealActionsView must also be persistent so Forward/Close buttons
-        # survive bot restarts. appeal_id is resolved from the channel topic.
-        from views.appeal_actions import AppealActionsView
         self.add_view(AppealActionsView(self))
 
+        # Audit every guild the bot is already in on startup.
+        # If the bot was added to an unapproved server while offline, handle it now.
+        for guild in self.guilds:
+            if not _is_approved(guild):
+                logger.warning(
+                    "Currently in unapproved guild %s (%s) - handling now",
+                    guild.name, guild.id,
+                )
+                await _handle_unapproved_guild(self, guild)
+
     async def on_guild_join(self, guild: discord.Guild):
-        if guild.id in APPROVED_GUILD_IDS:
-            logger.info(f"Joined approved guild: {guild.name} ({guild.id})")
+        if _is_approved(guild):
+            logger.info("Joined approved guild: %s (%s)", guild.name, guild.id)
+            await _alert_developers(self, f"Joined approved server **{guild.name}** (`{guild.id}`).")
             return
 
-        logger.warning(f"Joined unapproved guild: {guild.name} ({guild.id}) - notifying developer and leaving.")
+        logger.warning("Joined unapproved guild: %s (%s)", guild.name, guild.id)
+        await _handle_unapproved_guild(self, guild)
 
-        # Find who added the bot by checking the audit log.
-        inviter_name = "Unknown"
-        inviter_id = "Unknown"
-        try:
-            async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
-                if entry.target and entry.target.id == self.user.id:
-                    inviter_name = str(entry.user)
-                    inviter_id = entry.user.id
-                    break
-        except discord.Forbidden:
-            pass
 
-        # Generate a temporary invite so the developer can inspect the server.
-        invite_url = "Unable to generate invite"
-        try:
-            # Use the first text channel we can create an invite in.
-            for channel in guild.text_channels:
-                try:
-                    invite = await channel.create_invite(max_age=86400, max_uses=1, reason="Unapproved guild report")
-                    invite_url = invite.url
-                    break
-                except discord.Forbidden:
-                    continue
-        except Exception:
-            pass
+# ---------------------------------------------------------------------------
+# Guild guard helpers
+# ---------------------------------------------------------------------------
 
-        # DM the developer.
-        try:
-            developer = await self.fetch_user(DEVELOPER_ID)
-            embed = discord.Embed(
-                title="Unapproved Server Join",
-                color=0xDC2626,
-            )
-            embed.add_field(name="Server Name", value=guild.name, inline=True)
-            embed.add_field(name="Server ID", value=str(guild.id), inline=True)
-            embed.add_field(name="Member Count", value=str(guild.member_count), inline=True)
-            embed.add_field(name="Added By", value=inviter_name, inline=True)
-            embed.add_field(name="Adder ID", value=str(inviter_id), inline=True)
-            embed.add_field(name="Invite (24h)", value=invite_url, inline=False)
-            embed.set_footer(text="The bot has left this server.")
-            embed.timestamp = discord.utils.utcnow()
-            await developer.send(embed=embed)
-        except discord.HTTPException as exc:
-            logger.error(f"Failed to DM developer about unapproved guild {guild.id}: {exc}")
+def _is_approved(guild: discord.Guild) -> bool:
+    return bool(APPROVED_GUILD_IDS) and guild.id in APPROVED_GUILD_IDS
 
-        # Warn the server, then leave.
+
+async def _alert_developers(bot: AppealsBot, message: str) -> None:
+    for dev_id in DEVELOPER_IDS:
         try:
-            system_channel = guild.system_channel or next(
-                (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
-                None,
-            )
-            if system_channel:
-                await system_channel.send(UNAUTHORISED_GUILD_MESSAGE)
+            dev = bot.get_user(dev_id) or await bot.fetch_user(dev_id)
+            await dev.send(message)
         except discord.HTTPException:
             pass
 
-        await guild.leave()
+
+async def _handle_unapproved_guild(bot: AppealsBot, guild: discord.Guild) -> None:
+    """Alert developers with full details then optionally leave the guild."""
+    inviter_name, inviter_id = "Unknown", "Unknown"
+    try:
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
+            if entry.target and entry.target.id == bot.user.id:
+                inviter_name = str(entry.user)
+                inviter_id = str(entry.user.id)
+                break
+    except discord.Forbidden:
+        pass
+
+    invite_url = "Unable to generate invite"
+    for channel in guild.text_channels:
+        try:
+            invite = await channel.create_invite(
+                max_age=86400, max_uses=1, reason="Unapproved guild report"
+            )
+            invite_url = invite.url
+            break
+        except discord.HTTPException:
+            continue
+
+    action_note = "Leaving automatically." if LEAVE_UNAPPROVED_GUILDS else "Auto-leave is disabled - bot will remain."
+
+    embed = discord.Embed(title="Unapproved Server Join", color=0xDC2626, timestamp=discord.utils.utcnow())
+    embed.add_field(name="Server", value=f"{guild.name}\n`{guild.id}`", inline=True)
+    embed.add_field(name="Members", value=str(guild.member_count), inline=True)
+    embed.add_field(name="Added by", value=f"{inviter_name}\n`{inviter_id}`", inline=True)
+    embed.add_field(name="Invite (24h)", value=invite_url, inline=False)
+    embed.set_footer(text=action_note)
+
+    for dev_id in DEVELOPER_IDS:
+        try:
+            dev = bot.get_user(dev_id) or await bot.fetch_user(dev_id)
+            await dev.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
+    if LEAVE_UNAPPROVED_GUILDS:
+        # Post notice before leaving so the server owner sees why.
+        try:
+            channel = guild.system_channel or next(
+                (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
+                None,
+            )
+            if channel:
+                await channel.send(UNAUTHORISED_GUILD_MESSAGE)
+        except discord.HTTPException:
+            pass
+
+        try:
+            await guild.leave()
+            logger.info("Left unapproved guild %s (%s)", guild.name, guild.id)
+        except discord.HTTPException as exc:
+            logger.warning("Failed to leave unapproved guild %s (%s): %s", guild.name, guild.id, exc)
 
 
 def main():
-    token = os.environ.get("DISCORD_TOKEN")
-    if not token:
-        raise RuntimeError("DISCORD_TOKEN environment variable is not set.")
-
     bot = AppealsBot()
-    bot.run(token, log_handler=None)
+    bot.run(DISCORD_TOKEN, log_handler=None)
 
 
 if __name__ == "__main__":

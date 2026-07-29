@@ -3,12 +3,14 @@ import logging
 import discord
 from discord.ext import commands, tasks
 
-from constants import (
+from config import (
     MINIMUM_VOTES,
+    VOTING_HOURS,
     COLOUR_ACCEPTED,
     COLOUR_REJECTED,
     COLOUR_CLOSED,
     COLOUR_VOTING,
+    COLOUR_PRIMARY,
 )
 
 logger = logging.getLogger("appeals-bot.voting")
@@ -69,6 +71,7 @@ class VotingCog(commands.Cog):
             if ticket_channel:
                 await ticket_channel.send(embed=embed)
             await db.close_appeal(appeal_id, "closed")
+            await _dm_appellant(self.bot, appeal, verdict="inconclusive")
             return
 
         unban_wins = tally["unban"] > tally["keep_banned"]
@@ -93,6 +96,62 @@ class VotingCog(commands.Cog):
             )
 
         await db.close_appeal(appeal_id, verdict)
+        await _dm_appellant(self.bot, appeal, verdict=verdict)
+
+
+async def _dm_appellant(bot, appeal, *, verdict: str) -> None:
+    """DM the appellant with the outcome of their appeal."""
+    try:
+        user = await bot.fetch_user(appeal["appellant_id"])
+    except discord.HTTPException:
+        return
+
+    if verdict == "accepted":
+        embed = discord.Embed(
+            title="Ban Appeal - Accepted",
+            description=(
+                "Your ban appeal has been reviewed by the NFPD Ban Team.\n\n"
+                "**The vote was in your favour.** A staff member will action your unban shortly.\n\n"
+                "You will regain access to North Florida City Police Department once the unban has been executed."
+            ),
+            color=COLOUR_ACCEPTED,
+        )
+        embed.set_footer(text=f"Appeal #{appeal['id']}  |  NFPD Ban Appeals")
+
+    elif verdict == "rejected":
+        embed = discord.Embed(
+            title="Ban Appeal - Rejected",
+            description=(
+                "Your ban appeal has been reviewed by the NFPD Ban Team.\n\n"
+                "**The vote did not go in your favour.** Your ban will remain in place.\n\n"
+                "If you believe this outcome is incorrect, you may contact a senior staff member. "
+                "Please be respectful in any further communication."
+            ),
+            color=COLOUR_REJECTED,
+        )
+        embed.set_footer(text=f"Appeal #{appeal['id']}  |  NFPD Ban Appeals")
+
+    else:  # inconclusive
+        embed = discord.Embed(
+            title="Ban Appeal - Inconclusive",
+            description=(
+                "Your ban appeal did not receive enough votes within the 48-hour window to reach a valid result.\n\n"
+                f"A minimum of **{MINIMUM_VOTES} votes** is required. Your appeal has been closed without a verdict.\n\n"
+                "Staff may reopen your appeal manually. If you have questions, please contact a staff member."
+            ),
+            color=COLOUR_CLOSED,
+        )
+        embed.set_footer(text=f"Appeal #{appeal['id']}  |  NFPD Ban Appeals")
+
+    embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
+    embed.add_field(name="Appeal ID", value=str(appeal["id"]), inline=True)
+    embed.timestamp = discord.utils.utcnow()
+
+    try:
+        await user.send(embed=embed)
+    except discord.HTTPException:
+        # DMs closed or blocked - not a fatal error
+        logger.debug(f"Could not DM appellant {appeal['appellant_id']} for appeal {appeal['id']}")
 
 
 def _build_verdict_embed(appeal, tally: dict, total_votes: int, unban_wins: bool) -> discord.Embed:

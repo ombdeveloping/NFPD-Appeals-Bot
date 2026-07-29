@@ -2,7 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from constants import (
+from config import (
+    VOTING_HOURS,
     COLOUR_INFO,
     COLOUR_VOTING,
     COLOUR_ACCEPTED,
@@ -74,7 +75,7 @@ class AppealsCog(commands.Cog):
             return
 
         from datetime import datetime, timezone, timedelta
-        closes_at = datetime.now(timezone.utc) + timedelta(hours=48)
+        closes_at = datetime.now(timezone.utc) + timedelta(hours=VOTING_HOURS)
 
         from views.appeal_actions import _build_voting_embed
         from views.voting_panel import VotingPanelView

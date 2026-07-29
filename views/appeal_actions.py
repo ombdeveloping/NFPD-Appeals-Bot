@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 
 import discord
 
-from constants import COLOUR_VOTING, COLOUR_PRIMARY, COLOUR_CLOSED
+from config import COLOUR_VOTING, COLOUR_PRIMARY, COLOUR_CLOSED
 
 
 class AppealActionsView(discord.ui.View):
@@ -67,7 +67,7 @@ class AppealActionsView(discord.ui.View):
             )
             return
 
-        closes_at = datetime.now(timezone.utc) + timedelta(hours=48)
+        closes_at = datetime.now(timezone.utc) + timedelta(hours=VOTING_HOURS)
         ban_team_mention = f"<@&{config['ban_team_role']}>" if config["ban_team_role"] else None
 
         from views.voting_panel import VotingPanelView
