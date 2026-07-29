@@ -14,55 +14,48 @@ class VotingPanelView(discord.ui.View):
         self.appeal_id = appeal_id
 
     def _resolve_appeal_id(self, message: discord.Message) -> int | None:
-        """Fall back to parsing the embed footer when instance ID is 0 (post-restart)."""
+        """Return the stored appeal ID, or parse it from the embed footer on restart."""
         if self.appeal_id:
             return self.appeal_id
         try:
             footer = message.embeds[0].footer.text
+            # Footer format: "Appeal ID: 5  |  Minimum 3 votes required"
             part = footer.split("Appeal ID:")[1].strip().split()[0].rstrip("|").strip()
             return int(part)
         except (IndexError, ValueError, AttributeError):
             return None
 
     async def _can_vote(self, interaction: discord.Interaction) -> bool:
-        """Check voter is allowed to vote.
+        """Return True if the member is permitted to vote.
 
-        Two-layer check:
-          1. BAN_TEAM_ROLE_IDS env var - a global role allowlist (if set).
-          2. The ban_team_role stored in guild config via /setup.
-        Either one passing is sufficient. If neither is configured, anyone can vote.
+        Allowed when ANY of:
+          - No role restrictions are configured at all (open voting)
+          - The member has a role listed in BAN_TEAM_ROLE_IDS (env var)
+          - The member has the ban_team_role configured via /setup
+
+        Denied when a role IS configured and the member has none of them.
         """
         member_role_ids = {role.id for role in interaction.user.roles}
 
-        # Layer 1: global env-var role list
-        if BAN_TEAM_ROLE_IDS:
-            if member_role_ids & BAN_TEAM_ROLE_IDS:
-                return True
-            # If a global list IS set and they're not in it, also check DB role below
-            # before rejecting - they might have the per-guild role instead.
+        # Check env-var role list
+        if BAN_TEAM_ROLE_IDS and (member_role_ids & BAN_TEAM_ROLE_IDS):
+            return True
 
-        # Layer 2: per-guild role stored by /setup
+        # Check /setup role from database
         try:
             config = await self.bot.db.get_guild_config(interaction.guild_id)
-            if config and config["ban_team_role"]:
-                if config["ban_team_role"] in member_role_ids:
-                    return True
+            db_role_id = config["ban_team_role"] if config else None
         except Exception:
-            pass
+            db_role_id = None
 
-        # If either layer was configured and they didn't pass, deny.
-        if BAN_TEAM_ROLE_IDS:
-            return False
+        if db_role_id and db_role_id in member_role_ids:
+            return True
 
-        # No restrictions configured at all - check if /setup role is set
-        try:
-            config = await self.bot.db.get_guild_config(interaction.guild_id)
-            if config and config["ban_team_role"]:
-                return False  # Role IS configured and they don't have it
-        except Exception:
-            pass
+        # If no restrictions at all are configured, allow anyone
+        if not BAN_TEAM_ROLE_IDS and not db_role_id:
+            return True
 
-        return True  # Nothing configured, allow anyone
+        return False
 
     @discord.ui.button(
         label="Unban",
@@ -99,9 +92,16 @@ class VotingPanelView(discord.ui.View):
 
         db = self.bot.db
         appeal = await db.get_appeal(appeal_id)
-        if not appeal or appeal["status"] != "voting":
+        if not appeal:
             await interaction.followup.send(
-                "This appeal is no longer accepting votes.", ephemeral=True
+                "This appeal could not be found in the database.", ephemeral=True
+            )
+            return
+
+        if appeal["status"] != "voting":
+            await interaction.followup.send(
+                f"This appeal is **{appeal['status'].replace('_', ' ').title()}** and is no longer accepting votes.",
+                ephemeral=True,
             )
             return
 
@@ -117,9 +117,14 @@ class VotingPanelView(discord.ui.View):
 
         previous = await db.get_vote(appeal_id, interaction.user.id)
         await db.upsert_vote(appeal_id, interaction.user.id, vote)
-
         tally = await db.get_vote_tally(appeal_id)
-        await _update_vote_fields(interaction.message, tally)
+
+        # Update the live vote counters on the embed.
+        # Wrapped so a permissions failure here doesn't prevent the confirmation reply.
+        try:
+            await _update_vote_fields(interaction.message, tally)
+        except discord.HTTPException:
+            pass
 
         label = "Unban" if vote == "unban" else "Keep Banned"
 
@@ -130,17 +135,20 @@ class VotingPanelView(discord.ui.View):
         elif previous:
             old_label = "Unban" if previous["vote"] == "unban" else "Keep Banned"
             await interaction.followup.send(
-                f"Your vote has been updated from **{old_label}** to **{label}**.", ephemeral=True
+                f"Vote updated from **{old_label}** to **{label}**.", ephemeral=True
             )
         else:
             await interaction.followup.send(
-                f"Your vote for **{label}** has been recorded.", ephemeral=True
+                f"Your **{label}** vote has been recorded.", ephemeral=True
             )
 
 
-async def _update_vote_fields(message: discord.Message, tally: dict):
-    """Update the Unban and Keep Banned count fields on the voting embed."""
+async def _update_vote_fields(message: discord.Message, tally: dict) -> None:
+    """Rebuild the Unban / Keep Banned fields on the voting embed with fresh counts."""
+    if not message.embeds:
+        return
     embed = message.embeds[0]
+
     new_fields = []
     for field in embed.fields:
         if field.name == "Unban":
