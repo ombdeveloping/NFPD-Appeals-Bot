@@ -107,7 +107,7 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
 
         # --- Appellant-facing notice ---
         notice_embed = discord.Embed(
-            title="✅  Appeal Submitted",
+            title="Appeal Submitted",
             description=(
                 "Your appeal has been received and is now pending review by NFPD staff.\n\n"
                 "**What happens next:**\n"
@@ -143,12 +143,12 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
         # Ping the ban team so staff see the new ticket immediately.
         if ban_team_role:
             await ticket_channel.send(
-                f"{ban_team_role.mention} — A new ban appeal requires review.",
+                f"{ban_team_role.mention} - A new ban appeal requires review.",
                 allowed_mentions=discord.AllowedMentions(roles=True),
             )
 
         await interaction.followup.send(
-            f"✅ Your appeal has been submitted. Track its progress in {ticket_channel.mention}.",
+            f"Your appeal has been submitted. You can track it in {ticket_channel.mention}.",
             ephemeral=True,
         )
 
@@ -172,7 +172,7 @@ def _build_appeal_embed(
     appeal_reason: str,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title=f"📋  Case File  —  Appeal #{appeal_id}",
+        title=f"Case File - Appeal #{appeal_id}",
         color=0x1E3A5F,  # deep navy - distinct from the info blue
     )
     embed.set_author(name="North Florida Police Department  |  Staff Review", icon_url=BOT_AVATAR_URL)
@@ -182,8 +182,8 @@ def _build_appeal_embed(
     embed.add_field(name="Discord", value=discord_tag, inline=True)
     embed.add_field(name="Submitted By", value=appellant.mention, inline=True)
 
-    embed.add_field(name="🚫  Reason for Ban", value=ban_reason, inline=False)
-    embed.add_field(name="📝  Appeal Statement", value=appeal_reason, inline=False)
+    embed.add_field(name="Reason for Ban", value=ban_reason, inline=False)
+    embed.add_field(name="Appeal Statement", value=appeal_reason, inline=False)
 
     embed.set_footer(text=f"Appeal ID: {appeal_id}  •  Awaiting staff review")
     embed.timestamp = discord.utils.utcnow()

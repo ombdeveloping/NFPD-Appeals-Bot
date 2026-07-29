@@ -83,18 +83,16 @@ class DashboardCog(commands.Cog):
 
 def _build_dashboard_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="🚔  NFPD Ban Appeals",
+        title="NFPD Ban Appeals",
         description=(
             "If you believe your ban was issued in error, or you have since reflected on your "
             "conduct and wish to request reconsideration, you may submit a formal appeal below.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**📌  Before you submit:**\n\n"
-            "> 🔵  Appeals are reviewed by the NFPD Ban Team.\n"
-            "> 📂  You may only hold **one open appeal** at a time.\n"
-            "> ⏱️  Reviews take up to **48 hours** once forwarded to the team.\n"
-            "> ⚠️  Dishonest or frivolous appeals may result in a permanent ban.\n"
-            "> ✏️  Be clear, honest, and respectful in your statement.\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "**Before you submit:**\n"
+            "> Appeals are reviewed by the NFPD Ban Team.\n"
+            "> You may only hold one open appeal at a time.\n"
+            "> Reviews take up to 48 hours once forwarded to the team.\n"
+            "> Dishonest or frivolous appeals may result in a permanent ban.\n"
+            "> Be clear, honest, and respectful in your statement."
         ),
         color=COLOUR_PRIMARY,
     )

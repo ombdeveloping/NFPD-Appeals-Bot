@@ -38,7 +38,6 @@ class AppealActionsView(discord.ui.View):
         label="Forward to Ban Team",
         style=discord.ButtonStyle.success,
         custom_id="appeals:forward",
-        emoji="📨",
     )
     async def forward_to_ban_team(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -89,53 +88,14 @@ class AppealActionsView(discord.ui.View):
         await interaction.message.edit(view=self)
 
         await interaction.followup.send(
-            f"✅ Forwarded to {voting_channel.mention}. Voting closes {discord.utils.format_dt(closes_at, 'R')}.",
+            f"Forwarded to {voting_channel.mention}. Voting closes {discord.utils.format_dt(closes_at, 'R')}.",
             ephemeral=True,
         )
-
-    @discord.ui.button(
-        label="Export Transcript",
-        style=discord.ButtonStyle.secondary,
-        custom_id="appeals:transcript",
-        emoji="📋",
-    )
-    async def export_transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Generate and post the ticket transcript without closing it."""
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
-        appeal_id = self._resolve_appeal_id(interaction.channel)
-        db = self.bot.db
-        appeal = None
-        if appeal_id:
-            appeal = await db.get_appeal(appeal_id)
-
-        if not appeal:
-            await interaction.followup.send("Could not load appeal data.", ephemeral=True)
-            return
-
-        config = await db.get_guild_config(interaction.guild_id)
-        transcript_file = await _generate_transcript(interaction.channel, appeal)
-
-        embed = _build_transcript_embed(appeal, interaction.user, "Manually exported")
-
-        # Post to results channel if set, otherwise reply ephemerally.
-        results_channel = None
-        if config and config.get("results_channel"):
-            results_channel = interaction.guild.get_channel(config["results_channel"])
-
-        if results_channel:
-            await results_channel.send(embed=embed, file=transcript_file)
-            await interaction.followup.send(
-                f"✅ Transcript posted to {results_channel.mention}.", ephemeral=True
-            )
-        else:
-            await interaction.followup.send(embed=embed, file=transcript_file, ephemeral=True)
 
     @discord.ui.button(
         label="Close Ticket",
         style=discord.ButtonStyle.danger,
         custom_id="appeals:close_ticket",
-        emoji="🔒",
     )
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -160,7 +120,7 @@ class AppealActionsView(discord.ui.View):
                         except Exception:
                             pass
 
-        await interaction.followup.send("🔒 Closing ticket in 5 seconds...", ephemeral=True)
+        await interaction.followup.send("Closing ticket in 5 seconds...", ephemeral=True)
         await asyncio.sleep(5)
         try:
             await interaction.channel.delete(reason=f"Appeal {appeal_id} closed by {interaction.user}")
@@ -202,7 +162,7 @@ async def _generate_transcript(channel: discord.TextChannel, appeal: dict) -> di
 
 def _build_transcript_embed(appeal: dict, actioned_by: discord.Member, reason: str) -> discord.Embed:
     embed = discord.Embed(
-        title=f"📋  Transcript  —  Appeal #{appeal['id']}",
+        title=f"Transcript - Appeal #{appeal['id']}",
         color=COLOUR_CLOSED,
         timestamp=discord.utils.utcnow(),
     )
@@ -220,7 +180,7 @@ def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
     from views.voting_panel import _build_vote_bar
 
     embed = discord.Embed(
-        title=f"📋  Appeal #{appeal['id']}  —  Vote Required",
+        title=f"Appeal #{appeal['id']} - Vote Required",
         description=(
             "A ban appeal has been escalated for team review.\n"
             "Read the case carefully and cast your vote below.\n\n"
@@ -230,17 +190,15 @@ def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
         color=COLOUR_VOTING,
     )
     embed.set_author(name="North Florida Police Department  |  Ban Team Vote", icon_url=BOT_AVATAR_URL)
-    embed.set_thumbnail(url=f"https://cdn.discordapp.com/embed/avatars/0.png")  # placeholder; appellant has no avatar available here
-
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
 
-    embed.add_field(name="🚫  Reason for Ban", value=appeal["ban_reason"], inline=False)
-    embed.add_field(name="📝  Appeal Statement", value=appeal["appeal_reason"], inline=False)
+    embed.add_field(name="Reason for Ban", value=appeal["ban_reason"], inline=False)
+    embed.add_field(name="Appeal Statement", value=appeal["appeal_reason"], inline=False)
 
     embed.add_field(
-        name="📅  Voting Window",
+        name="Voting Window",
         value=(
             f"Opened: {discord.utils.format_dt(datetime.now(timezone.utc), 'F')}\n"
             f"Closes: {discord.utils.format_dt(closes_at, 'F')}"
@@ -248,7 +206,7 @@ def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="📊  Vote Progress",
+        name="Vote Progress",
         value=f"🟢 {_build_vote_bar(0, 0)} 🔴\n**0** vote(s) cast",
         inline=False,
     )
