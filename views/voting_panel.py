@@ -11,6 +11,28 @@ class VotingPanelView(discord.ui.View):
         self.bot = bot
         self.appeal_id = appeal_id
 
+    def _resolve_appeal_id(self, message: discord.Message) -> int | None:
+        """Fall back to parsing the embed footer when the instance ID is 0 (post-restart)."""
+        if self.appeal_id:
+            return self.appeal_id
+        try:
+            footer = message.embeds[0].footer.text
+            part = footer.split("Appeal ID:")[1].strip().split()[0].rstrip("|").strip()
+            return int(part)
+        except (IndexError, ValueError, AttributeError):
+            return None
+
+    async def _check_voter_role(self, interaction: discord.Interaction) -> bool:
+        """Return True if the user has the ban team role (or no role is configured)."""
+        db = self.bot.db
+        config = await db.get_guild_config(interaction.guild_id)
+        if not config or not config["ban_team_role"]:
+            return True
+        role = interaction.guild.get_role(config["ban_team_role"])
+        if role is None:
+            return True
+        return role in interaction.user.roles
+
     @discord.ui.button(
         label="Unban",
         style=discord.ButtonStyle.success,
@@ -31,7 +53,21 @@ class VotingPanelView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         db = self.bot.db
 
-        appeal = await db.get_appeal(self.appeal_id)
+        if not await self._check_voter_role(interaction):
+            await interaction.followup.send(
+                "You do not have the required role to vote on appeals.", ephemeral=True
+            )
+            return
+
+        appeal_id = self._resolve_appeal_id(interaction.message)
+        if not appeal_id:
+            await interaction.followup.send(
+                "Could not determine which appeal this belongs to. Please contact an admin.",
+                ephemeral=True,
+            )
+            return
+
+        appeal = await db.get_appeal(appeal_id)
         if not appeal or appeal["status"] != "voting":
             await interaction.followup.send(
                 "This appeal is no longer accepting votes.", ephemeral=True
@@ -48,10 +84,10 @@ class VotingPanelView(discord.ui.View):
                 )
                 return
 
-        previous = await db.get_vote(self.appeal_id, interaction.user.id)
-        await db.upsert_vote(self.appeal_id, interaction.user.id, vote)
+        previous = await db.get_vote(appeal_id, interaction.user.id)
+        await db.upsert_vote(appeal_id, interaction.user.id, vote)
 
-        tally = await db.get_vote_tally(self.appeal_id)
+        tally = await db.get_vote_tally(appeal_id)
         await _update_vote_fields(interaction.message, tally)
 
         label = "Unban" if vote == "unban" else "Keep Banned"

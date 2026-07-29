@@ -45,6 +45,10 @@ class AppealsBot(commands.Bot):
         self.add_view(AppealPanelView(self))
         self.add_view(VotingPanelView(self))
         self.add_view(VerdictPanelView(self))
+        # AppealActionsView must also be persistent so Forward/Close buttons
+        # survive bot restarts. appeal_id is resolved from the channel topic.
+        from views.appeal_actions import AppealActionsView
+        self.add_view(AppealActionsView(self))
 
     async def on_guild_join(self, guild: discord.Guild):
         if guild.id in APPROVED_GUILD_IDS:

@@ -3,16 +3,27 @@ from datetime import datetime, timezone, timedelta
 
 import discord
 
-from constants import COLOUR_VOTING, COLOUR_PRIMARY
+from constants import COLOUR_VOTING, COLOUR_PRIMARY, COLOUR_CLOSED
 
 
 class AppealActionsView(discord.ui.View):
     """Staff-facing buttons inside the private ticket channel."""
 
-    def __init__(self, bot, appeal_id: int):
+    def __init__(self, bot, appeal_id: int = 0):
         super().__init__(timeout=None)
         self.bot = bot
         self.appeal_id = appeal_id
+
+    def _resolve_appeal_id(self, channel: discord.TextChannel) -> int | None:
+        """Parse the appeal ID from the channel topic when instance var is 0 (post-restart)."""
+        if self.appeal_id:
+            return self.appeal_id
+        if channel.topic and "Appeal ID:" in channel.topic:
+            try:
+                return int(channel.topic.split("Appeal ID:")[1].strip())
+            except (ValueError, IndexError):
+                pass
+        return None
 
     @discord.ui.button(
         label="Forward to Ban Team",
@@ -21,6 +32,13 @@ class AppealActionsView(discord.ui.View):
     )
     async def forward_to_ban_team(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
+
+        appeal_id = self._resolve_appeal_id(interaction.channel)
+        if not appeal_id:
+            await interaction.followup.send(
+                "Could not determine the appeal ID for this ticket.", ephemeral=True
+            )
+            return
 
         db = self.bot.db
         config = await db.get_guild_config(interaction.guild_id)
@@ -31,7 +49,7 @@ class AppealActionsView(discord.ui.View):
             )
             return
 
-        appeal = await db.get_appeal(self.appeal_id)
+        appeal = await db.get_appeal(appeal_id)
         if not appeal:
             await interaction.followup.send("Could not find this appeal.", ephemeral=True)
             return
@@ -56,10 +74,10 @@ class AppealActionsView(discord.ui.View):
         voting_msg = await voting_channel.send(
             content=ban_team_mention,
             embed=_build_voting_embed(appeal, closes_at),
-            view=VotingPanelView(self.bot, self.appeal_id),
+            view=VotingPanelView(self.bot, appeal_id),
         )
 
-        await db.set_appeal_voting(self.appeal_id, voting_msg.id, closes_at)
+        await db.set_appeal_voting(appeal_id, voting_msg.id, closes_at)
 
         button.disabled = True
         button.label = "Forwarded to Ban Team"
@@ -78,17 +96,20 @@ class AppealActionsView(discord.ui.View):
     )
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
-        db = self.bot.db
-        appeal = await db.get_appeal(self.appeal_id)
 
-        if appeal and appeal["status"] == "open":
-            await db.close_appeal(self.appeal_id, "closed")
+        appeal_id = self._resolve_appeal_id(interaction.channel)
+        db = self.bot.db
+
+        if appeal_id:
+            appeal = await db.get_appeal(appeal_id)
+            if appeal and appeal["status"] == "open":
+                await db.close_appeal(appeal_id, "closed")
 
         await interaction.followup.send("Closing ticket in 5 seconds...", ephemeral=True)
         await asyncio.sleep(5)
         try:
             await interaction.channel.delete(
-                reason=f"Appeal {self.appeal_id} closed by {interaction.user}"
+                reason=f"Appeal {appeal_id} closed by {interaction.user}"
             )
         except discord.HTTPException:
             pass
