@@ -1,5 +1,7 @@
 import discord
 
+from constants import COLOUR_INFO, COLOUR_PRIMARY
+
 
 class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
     roblox_username = discord.ui.TextInput(
@@ -22,7 +24,7 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
     )
     appeal_reason = discord.ui.TextInput(
         label="Why Should You Be Unbanned?",
-        placeholder="Explain your case clearly and honestly.",
+        placeholder="Explain your case clearly and honestly. Be specific.",
         style=discord.TextStyle.paragraph,
         max_length=1000,
     )
@@ -54,13 +56,18 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
             )
             return
 
+        roblox_username = self.roblox_username.value.strip()
+        discord_tag = self.discord_tag.value.strip()
+        ban_reason = self.ban_reason.value.strip()
+        appeal_reason = self.appeal_reason.value.strip()
+
         appeal_id = await db.create_appeal(
             guild_id=guild_id,
             appellant_id=user_id,
-            roblox_username=self.roblox_username.value.strip(),
-            discord_tag=self.discord_tag.value.strip(),
-            ban_reason=self.ban_reason.value.strip(),
-            appeal_reason=self.appeal_reason.value.strip(),
+            roblox_username=roblox_username,
+            discord_tag=discord_tag,
+            ban_reason=ban_reason,
+            appeal_reason=appeal_reason,
         )
 
         appeals_channel = interaction.guild.get_channel(config["appeals_channel"])
@@ -74,7 +81,7 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
         ticket_channel = await interaction.guild.create_text_channel(
             name=f"appeal-{interaction.user.name}",
             category=appeals_channel.category,
-            topic=f"Ban appeal for {interaction.user} | Appeal ID: {appeal_id}",
+            topic=f"Ban appeal submitted by {interaction.user} | Appeal ID: {appeal_id}",
             overwrites={
                 interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
                 interaction.user: discord.PermissionOverwrite(
@@ -93,24 +100,39 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
 
         await db.set_appeal_ticket_channel(appeal_id, ticket_channel.id)
 
-        embed = _build_appeal_embed(
+        # Opening notice inside the ticket visible to the appellant.
+        notice_embed = discord.Embed(
+            title="Appeal Received",
+            description=(
+                "Your appeal has been submitted and is awaiting review by the NFPD Ban Team.\n\n"
+                "A staff member will forward it to the team shortly. "
+                "You will be notified in this channel when a verdict is reached.\n\n"
+                "**Do not submit duplicate appeals.** Please be patient."
+            ),
+            color=COLOUR_INFO,
+        )
+        notice_embed.set_footer(text=f"Appeal ID: {appeal_id}  |  NFPD Ban Appeals")
+        notice_embed.timestamp = discord.utils.utcnow()
+
+        # Full case embed visible to staff.
+        case_embed = _build_appeal_embed(
             appeal_id=appeal_id,
             appellant=interaction.user,
-            roblox_username=self.roblox_username.value.strip(),
-            discord_tag=self.discord_tag.value.strip(),
-            ban_reason=self.ban_reason.value.strip(),
-            appeal_reason=self.appeal_reason.value.strip(),
+            roblox_username=roblox_username,
+            discord_tag=discord_tag,
+            ban_reason=ban_reason,
+            appeal_reason=appeal_reason,
         )
 
         from views.appeal_actions import AppealActionsView
         await ticket_channel.send(
             content=interaction.user.mention,
-            embed=embed,
+            embeds=[notice_embed, case_embed],
             view=AppealActionsView(self.bot, appeal_id),
         )
 
         await interaction.followup.send(
-            f"Your appeal has been submitted. Head to {ticket_channel.mention} to track its progress.",
+            f"Your appeal has been submitted. You can track its progress in {ticket_channel.mention}.",
             ephemeral=True,
         )
 
@@ -131,18 +153,17 @@ def _build_appeal_embed(
     appeal_reason: str,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="Ban Appeal",
-        color=0x2C2F33,
+        title=f"Case File  |  Appeal #{appeal_id}",
+        color=COLOUR_PRIMARY,
     )
-    embed.set_author(
-        name="NFPD Ban Appeals",
-        icon_url="https://i.imgur.com/4M34hi2.png",
-    )
-    embed.add_field(name="Roblox Username", value=roblox_username, inline=True)
-    embed.add_field(name="Discord", value=discord_tag, inline=True)
+    embed.set_author(name="NFPD Ban Appeals  |  Staff Review")
+    embed.add_field(name="Roblox Username", value=f"`{roblox_username}`", inline=True)
+    embed.add_field(name="Discord Tag", value=discord_tag, inline=True)
     embed.add_field(name="Submitted By", value=appellant.mention, inline=True)
     embed.add_field(name="Reason for Ban", value=ban_reason, inline=False)
     embed.add_field(name="Appeal Statement", value=appeal_reason, inline=False)
-    embed.set_footer(text=f"Appeal ID: {appeal_id}")
+    embed.set_footer(
+        text=f"Appeal ID: {appeal_id}  |  Awaiting staff review",
+    )
     embed.timestamp = discord.utils.utcnow()
     return embed

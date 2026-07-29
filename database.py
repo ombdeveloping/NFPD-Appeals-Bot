@@ -38,13 +38,18 @@ class Database:
                     voting_msg_id    BIGINT,
                     status           TEXT NOT NULL DEFAULT 'open',
                     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    closes_at        TIMESTAMPTZ,
-                    UNIQUE (guild_id, appellant_id, status)
+                    closes_at        TIMESTAMPTZ
                 )
             """)
 
-            # The UNIQUE on (guild_id, appellant_id, status) means a user can only
-            # have one 'open' appeal per guild at a time. Closed ones accumulate freely.
+            # Partial unique index: one open appeal per user per guild.
+            # Unlike UNIQUE(guild_id, appellant_id, status), this only fires when status='open',
+            # so closed/rejected/accepted appeals can accumulate freely.
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS appeals_one_open_per_user
+                ON appeals (guild_id, appellant_id)
+                WHERE status = 'open'
+            """)
 
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS votes (
@@ -147,7 +152,14 @@ class Database:
             )
 
     async def close_appeal(self, appeal_id: int, status: str):
-        """status should be 'accepted', 'rejected', or 'closed'."""
+        """
+        Valid statuses:
+          'accepted'       - vote result: unban won (awaiting staff action)
+          'rejected'       - vote result: keep banned won (awaiting staff action)
+          'closed'         - inconclusive vote, or staff manually closed before voting
+          'actioned_unban' - staff pressed Execute Unban
+          'actioned_close' - staff pressed Close Ticket after verdict
+        """
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "UPDATE appeals SET status = $1 WHERE id = $2",

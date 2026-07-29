@@ -1,12 +1,13 @@
-import discord
+import asyncio
 from datetime import datetime, timezone, timedelta
+
+import discord
+
+from constants import COLOUR_VOTING, COLOUR_PRIMARY
 
 
 class AppealActionsView(discord.ui.View):
-    """
-    Shown inside the private ticket channel.
-    Only visible to staff - forwards the appeal to the voting channel.
-    """
+    """Staff-facing buttons inside the private ticket channel."""
 
     def __init__(self, bot, appeal_id: int):
         super().__init__(timeout=None)
@@ -17,7 +18,6 @@ class AppealActionsView(discord.ui.View):
         label="Forward to Ban Team",
         style=discord.ButtonStyle.success,
         custom_id="appeals:forward",
-        emoji="📨",
     )
     async def forward_to_ban_team(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -27,8 +27,7 @@ class AppealActionsView(discord.ui.View):
 
         if not config or not config["voting_channel"]:
             await interaction.followup.send(
-                "No voting channel is configured. Run `/setup` first.",
-                ephemeral=True,
+                "No voting channel is configured. Run `/setup` first.", ephemeral=True
             )
             return
 
@@ -51,29 +50,24 @@ class AppealActionsView(discord.ui.View):
             return
 
         closes_at = datetime.now(timezone.utc) + timedelta(hours=48)
-
-        ban_team_mention = ""
-        if config["ban_team_role"]:
-            ban_team_mention = f"<@&{config['ban_team_role']}>"
-
-        embed = _build_voting_embed(appeal, closes_at)
+        ban_team_mention = f"<@&{config['ban_team_role']}>" if config["ban_team_role"] else None
 
         from views.voting_panel import VotingPanelView
         voting_msg = await voting_channel.send(
-            content=ban_team_mention or None,
-            embed=embed,
+            content=ban_team_mention,
+            embed=_build_voting_embed(appeal, closes_at),
             view=VotingPanelView(self.bot, self.appeal_id),
         )
 
         await db.set_appeal_voting(self.appeal_id, voting_msg.id, closes_at)
 
-        # Disable the forward button so it can't be pressed twice
         button.disabled = True
         button.label = "Forwarded to Ban Team"
         await interaction.message.edit(view=self)
 
         await interaction.followup.send(
-            f"Appeal forwarded to {voting_channel.mention}. Voting closes <t:{int(closes_at.timestamp())}:R>.",
+            f"Appeal forwarded to {voting_channel.mention}. "
+            f"Voting closes <t:{int(closes_at.timestamp())}:R>.",
             ephemeral=True,
         )
 
@@ -81,7 +75,6 @@ class AppealActionsView(discord.ui.View):
         label="Close Ticket",
         style=discord.ButtonStyle.danger,
         custom_id="appeals:close_ticket",
-        emoji="🔒",
     )
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
@@ -92,37 +85,47 @@ class AppealActionsView(discord.ui.View):
             await db.close_appeal(self.appeal_id, "closed")
 
         await interaction.followup.send("Closing ticket in 5 seconds...", ephemeral=True)
-
-        import asyncio
         await asyncio.sleep(5)
         try:
-            await interaction.channel.delete(reason=f"Appeal {self.appeal_id} closed by {interaction.user}")
+            await interaction.channel.delete(
+                reason=f"Appeal {self.appeal_id} closed by {interaction.user}"
+            )
         except discord.HTTPException:
             pass
 
 
 def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
     embed = discord.Embed(
-        title="Ban Appeal - Team Review",
+        title=f"Appeal #{appeal['id']}  |  Team Review Required",
         description=(
-            "Review the appeal below and cast your vote. "
-            "A minimum of **3 votes** is required for a valid result."
+            "A ban appeal has been escalated for team review. "
+            "Read the case below and cast your vote.\n\n"
+            f"A minimum of **3 votes** is required for a valid result. "
+            f"Voting closes <t:{int(closes_at.timestamp())}:R>."
         ),
-        color=0xFFA500,
+        color=COLOUR_VOTING,
     )
-    embed.set_author(name="NFPD Ban Appeals")
-    embed.add_field(name="Roblox Username", value=appeal["roblox_username"], inline=True)
+    embed.set_author(name="NFPD Ban Appeals  |  Ban Team Vote")
+
+    embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
+    embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
+
     embed.add_field(name="Reason for Ban", value=appeal["ban_reason"], inline=False)
     embed.add_field(name="Appeal Statement", value=appeal["appeal_reason"], inline=False)
+
     embed.add_field(
-        name="Voting Closes",
-        value=f"<t:{int(closes_at.timestamp())}:F> (<t:{int(closes_at.timestamp())}:R>)",
+        name="Voting Window",
+        value=(
+            f"Opens: <t:{int(datetime.now(timezone.utc).timestamp())}:F>\n"
+            f"Closes: <t:{int(closes_at.timestamp())}:F>"
+        ),
         inline=False,
     )
-    embed.add_field(name="Unban", value="0 votes", inline=True)
-    embed.add_field(name="Keep Banned", value="0 votes", inline=True)
-    embed.set_footer(text=f"Appeal ID: {appeal['id']} - Minimum 3 votes required")
+
+    embed.add_field(name="Unban", value="**0** vote(s)", inline=True)
+    embed.add_field(name="Keep Banned", value="**0** vote(s)", inline=True)
+
+    embed.set_footer(text=f"Appeal ID: {appeal['id']}  |  Minimum 3 votes required")
     embed.timestamp = discord.utils.utcnow()
     return embed

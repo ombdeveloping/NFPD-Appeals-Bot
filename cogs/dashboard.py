@@ -2,6 +2,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from constants import COLOUR_PRIMARY
+
 
 class DashboardCog(commands.Cog):
     def __init__(self, bot):
@@ -31,15 +33,20 @@ class DashboardCog(commands.Cog):
             results_channel=results_channel.id,
             ban_team_role=ban_team_role.id,
         )
-        await interaction.followup.send(
-            f"Configuration saved.\n"
-            f"- Appeals channel: {appeals_channel.mention}\n"
-            f"- Voting channel: {voting_channel.mention}\n"
-            f"- Results channel: {results_channel.mention}\n"
-            f"- Ban team role: {ban_team_role.mention}\n\n"
-            f"Run `/createdashboard` in the channel you want the appeal panel to appear.",
-            ephemeral=True,
+
+        embed = discord.Embed(
+            title="Configuration Saved",
+            description="The appeals bot is ready to use. Run `/createdashboard` in your public appeals channel to post the submission panel.",
+            color=COLOUR_PRIMARY,
         )
+        embed.add_field(name="Appeals Channel", value=appeals_channel.mention, inline=True)
+        embed.add_field(name="Voting Channel", value=voting_channel.mention, inline=True)
+        embed.add_field(name="Results Channel", value=results_channel.mention, inline=True)
+        embed.add_field(name="Ban Team Role", value=ban_team_role.mention, inline=True)
+        embed.set_footer(text="NFPD Appeals System")
+        embed.timestamp = discord.utils.utcnow()
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="createdashboard",
@@ -57,7 +64,6 @@ class DashboardCog(commands.Cog):
             )
             return
 
-        # Delete the old dashboard message if one exists
         if config["dashboard_msg_id"]:
             try:
                 old_msg = await interaction.channel.fetch_message(config["dashboard_msg_id"])
@@ -65,35 +71,33 @@ class DashboardCog(commands.Cog):
             except (discord.NotFound, discord.HTTPException):
                 pass
 
-        embed = _build_dashboard_embed()
         from views.appeal_panel import AppealPanelView
-        msg = await interaction.channel.send(embed=embed, view=AppealPanelView(self.bot))
-
-        await self.bot.db.upsert_guild_config(
-            interaction.guild_id, dashboard_msg_id=msg.id
+        msg = await interaction.channel.send(
+            embed=_build_dashboard_embed(),
+            view=AppealPanelView(self.bot),
         )
 
-        await interaction.followup.send(
-            "Dashboard posted successfully.", ephemeral=True
-        )
+        await self.bot.db.upsert_guild_config(interaction.guild_id, dashboard_msg_id=msg.id)
+        await interaction.followup.send("Dashboard posted.", ephemeral=True)
 
 
 def _build_dashboard_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="NFPD Ban Appeals",
+        title="Ban Appeals",
         description=(
-            "If you believe your ban was issued in error or you have reflected on your actions "
-            "and wish to request reconsideration, you may submit a ban appeal below.\n\n"
-            "**Before submitting, please note:**\n"
-            "- Appeals are reviewed by the NFPD Ban Team and may take up to **48 hours**.\n"
-            "- You may only have **one open appeal** at a time.\n"
-            "- Submitting a false or misleading appeal may result in a permanent ban.\n"
-            "- Be honest, clear, and respectful in your appeal."
+            "If you believe your ban was issued in error, or you have reflected on your conduct "
+            "and wish to request reconsideration, you may submit a formal appeal below.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "**Before you submit, read this carefully:**\n\n"
+            "> Appeals are reviewed by the NFPD Ban Team.\n"
+            "> You may only hold **one open appeal** at a time.\n"
+            "> The review process takes up to **48 hours** after submission.\n"
+            "> Dishonest or frivolous appeals may result in a permanent ban.\n"
+            "> Be clear, honest, and respectful.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
         ),
-        color=0x1F2937,
+        color=COLOUR_PRIMARY,
     )
-    embed.set_author(
-        name="NFPD | National Force Police Department",
-    )
-    embed.set_footer(text="Tap the button below to begin your appeal.")
+    embed.set_author(name="NFPD  |  National Force Police Department")
+    embed.set_footer(text="Tap the button below to begin  •  NFPD Ban Appeals")
     return embed

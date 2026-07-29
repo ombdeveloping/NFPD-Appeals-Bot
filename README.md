@@ -1,62 +1,72 @@
 # NFPD Ban Appeals Bot
 
-A Discord bot for managing ban appeals with a voting system for the ban team.
+A Discord bot for managing ban appeals with a structured voting system, guild allowlist, and automatic developer notification for unauthorised server joins.
 
 ## Setup
 
-### 1. Railway Environment Variables
+### 1. Approve your server(s)
 
-In your Railway service, set these environment variables:
+Open `constants.py` and add your guild ID(s) to `APPROVED_GUILD_IDS`:
+
+```python
+APPROVED_GUILD_IDS: set[int] = {
+    123456789012345678,  # Your server ID
+}
+```
+
+If the bot joins any server not in this set, it will:
+1. Try to pull the inviter from the audit log
+2. Generate a temporary server invite
+3. DM the developer (ID `1285998518213017663`) with all details
+4. Send an unauthorised notice in the server
+5. Leave immediately
+
+### 2. Railway - add PostgreSQL
+
+In your Railway project: **+ New > Database > Add PostgreSQL**.
+`DATABASE_URL` is injected automatically - no config needed.
+
+### 3. Set environment variables
 
 | Variable | Value |
 |---|---|
 | `DISCORD_TOKEN` | Your bot token from the Discord Developer Portal |
-| `DATABASE_URL` | Auto-injected by Railway when you add the Postgres plugin |
+| `DATABASE_URL` | Auto-injected by Railway Postgres plugin |
 
-### 2. Add PostgreSQL to Railway
+### 4. Enable Members Intent
 
-1. In your Railway project, click **+ New**
-2. Select **Database > Add PostgreSQL**
-3. Railway automatically injects `DATABASE_URL` into your service - no extra config needed.
+In the Discord Developer Portal, under your bot > Privileged Gateway Intents, enable **Server Members Intent**.
 
-### 3. Bot Permissions
+### 5. Bot permissions
 
-When adding the bot to your server, it needs these permissions:
+The bot needs these permissions when added to a server:
 
-- Read Messages / View Channels
+- View Channels / Read Messages
 - Send Messages
-- Manage Channels (to create ticket channels)
+- Manage Channels
 - Manage Messages
 - Embed Links
-- Ban Members (to execute unbans)
+- Ban Members
+- View Audit Log
 - Use Application Commands
 
-Invite URL scopes: `bot` + `applications.commands`
-
-### 4. Discord Developer Portal
-
-Enable the **Server Members Intent** under your bot's Privileged Gateway Intents.
+Invite scopes: `bot` + `applications.commands`
 
 ---
 
-## First-Time Server Configuration
+## First-time server setup
 
-Run these commands once in your Discord server (requires Administrator):
-
-**1. Configure channels and roles:**
 ```
 /setup
   appeals_channel: #appeals-tickets
-  voting_channel: #ban-team-voting
+  voting_channel:  #ban-team-votes
   results_channel: #appeal-results
-  ban_team_role: @Ban Team
+  ban_team_role:   @Ban Team
+
+/createdashboard   <- run this in your public-facing appeals channel
 ```
 
-**2. Post the dashboard panel:**
-```
-/createdashboard
-```
-Run this in the public-facing channel where members submit appeals.
+Tables create themselves on first boot.
 
 ---
 
@@ -64,42 +74,42 @@ Run this in the public-facing channel where members submit appeals.
 
 | Command | Permission | Description |
 |---|---|---|
-| `/setup` | Administrator | Configure channels and ban team role |
-| `/createdashboard` | Administrator | Post the appeal submission panel |
-| `/forwardtobanteam` | Manage Guild | Manually forward an appeal to voting (run inside the ticket channel) |
-| `/appealinfo <id>` | Manage Guild | View status and vote tally for any appeal |
+| `/setup` | Administrator | Set channels and ban team role |
+| `/createdashboard` | Administrator | Post the public appeal submission panel |
+| `/forwardtobanteam` | Manage Guild | Manually forward appeal to voting (run inside ticket channel) |
+| `/appealinfo <id>` | Manage Guild | View full case file and live vote tally |
 
 ---
 
-## Appeal Flow
+## Appeal flow
 
-1. Member clicks **Submit a Ban Appeal** on the dashboard
-2. A modal pops up asking for: Roblox username, Discord tag, ban reason, appeal statement
-3. A private ticket channel is created for the member
-4. Staff click **Forward to Ban Team** inside the ticket (or use `/forwardtobanteam`)
-5. The appeal posts in the voting channel with **Unban** / **Keep Banned** buttons
-6. After 48 hours, the bot checks votes:
-   - If fewer than 3 votes: appeal closes as inconclusive
-   - If Unban wins: verdict posted with **Execute Unban** and **Close Ticket** buttons
-   - If Keep Banned wins: verdict posted with **Close Ticket** button only
-7. Staff action the verdict; ticket channel is deleted automatically
+1. Member clicks **Submit a Ban Appeal** on the dashboard panel
+2. A modal pops up - Roblox username, Discord tag, reason for ban, appeal statement
+3. A private ticket channel is created; the member and bot can see it
+4. Staff click **Forward to Ban Team** (or use `/forwardtobanteam`)
+5. Appeal posts in the voting channel with a ban team role ping and live vote counters
+6. After 48 hours the background task checks votes:
+   - Fewer than 3 votes: inconclusive, appeal closed
+   - Unban wins: verdict posted with **Execute Unban** + **Close Ticket**
+   - Keep Banned wins: verdict posted with **Close Ticket** only
+7. Staff action the verdict; ticket channel deletes itself
 
 ---
 
-## File Structure
+## File structure
 
 ```
-bot.py           - Entry point
-database.py      - PostgreSQL layer (asyncpg)
+bot.py             - Entry point, guild guard (on_guild_join)
+constants.py       - APPROVED_GUILD_IDS, brand colours, thresholds
+database.py        - asyncpg PostgreSQL layer
 cogs/
-  dashboard.py   - /setup and /createdashboard
-  appeals.py     - /forwardtobanteam and /appealinfo
-  voting.py      - Background task that finalises expired votes
+  dashboard.py     - /setup, /createdashboard
+  appeals.py       - /forwardtobanteam, /appealinfo
+  voting.py        - Background task that finalises expired votes
 views/
-  appeal_panel.py    - Persistent dashboard button
-  appeal_modal.py    - The modal form + ticket creation
-  appeal_actions.py  - Forward/Close buttons inside ticket
-  voting_panel.py    - Unban/Keep Banned vote buttons
-  verdict_panel.py   - Execute Unban/Close Ticket after voting ends
+  appeal_panel.py  - Persistent dashboard button
+  appeal_modal.py  - Modal form + ticket channel creation
+  appeal_actions.py- Forward / Close Ticket buttons in ticket
+  voting_panel.py  - Unban / Keep Banned vote buttons
+  verdict_panel.py - Execute Unban / Close Ticket after voting ends
 ```
-"# NFPD-Appeals-Bot" 
