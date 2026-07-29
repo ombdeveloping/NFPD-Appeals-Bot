@@ -16,6 +16,7 @@ from config import (
 from database import Database
 from cogs.appeals import AppealsCog
 from cogs.dashboard import DashboardCog
+from cogs.debug import DebugCog
 from cogs.voting import VotingCog
 
 logging.basicConfig(
@@ -51,6 +52,7 @@ class AppealsBot(commands.Bot):
         await self.add_cog(DashboardCog(self))
         await self.add_cog(AppealsCog(self))
         await self.add_cog(VotingCog(self))
+        await self.add_cog(DebugCog(self))
 
         try:
             synced = await self.tree.sync()

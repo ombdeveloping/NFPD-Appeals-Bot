@@ -1,29 +1,22 @@
 import asyncio
+import logging
 
 import discord
 
-from config import BOT_AVATAR_URL, COLOUR_ACCEPTED, COLOUR_CLOSED, COLOUR_REJECTED
+from config import BOT_AVATAR_URL, COLOUR_CLOSED
 
-# Statuses that mean the verdict has already been actioned by staff.
+logger = logging.getLogger("appeals-bot.verdict")
+
 _ACTIONED_STATUSES = {"actioned_unban", "actioned_close"}
 
 
 class VerdictPanelView(discord.ui.View):
-    """
-    Posted in the results channel (and the ticket) after voting ends.
-    Staff either execute the unban or close the ticket.
-    """
-
     def __init__(self, bot, appeal_id: int = 0):
         super().__init__(timeout=None)
         self.bot = bot
         self._appeal_id_override = appeal_id
 
-    @discord.ui.button(
-        label="Execute Unban",
-        style=discord.ButtonStyle.success,
-        custom_id="verdict:execute_unban",
-    )
+    @discord.ui.button(label="Execute Unban", style=discord.ButtonStyle.success, custom_id="verdict:execute_unban")
     async def execute_unban(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         appeal_id = self._resolve_appeal_id(interaction.message)
@@ -37,28 +30,20 @@ class VerdictPanelView(discord.ui.View):
             await interaction.followup.send("Appeal not found.", ephemeral=True)
             return
 
-        # Only allow unbanning when the vote outcome was 'accepted'.
-        # Reject attempts to unban when keep_banned won, and block double-actions.
         if appeal["status"] == "actioned_unban":
             await interaction.followup.send("This appeal has already been unbanned.", ephemeral=True)
             return
         if appeal["status"] in _ACTIONED_STATUSES or appeal["status"] not in ("accepted", "rejected"):
-            await interaction.followup.send(
-                "This verdict has already been actioned or is not in an actionable state.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("This verdict has already been actioned or is not actionable.", ephemeral=True)
             return
         if appeal["status"] == "rejected":
-            await interaction.followup.send(
-                "The vote result for this appeal was **Keep Banned**. Unban is not available.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("The vote result was Keep Banned. Unban is not available.", ephemeral=True)
             return
 
         try:
             await interaction.guild.unban(
                 discord.Object(id=appeal["appellant_id"]),
-                reason=f"Appeal #{appeal_id} accepted - actioned by {interaction.user}",
+                reason=f"Appeal {appeal_id} accepted - actioned by {interaction.user}",
             )
             result_text = (
                 f"<@{appeal['appellant_id']}> (`{appeal['roblox_username']}`) has been unbanned. "
@@ -71,23 +56,17 @@ class VerdictPanelView(discord.ui.View):
             )
         except discord.Forbidden:
             await interaction.followup.send(
-                "I do not have permission to unban members. Please check my role and permissions.",
-                ephemeral=True,
+                "I do not have permission to unban members. Check my role and permissions.", ephemeral=True
             )
             return
 
         await db.close_appeal(appeal_id, "actioned_unban")
         self._disable_all_buttons()
         await interaction.message.edit(view=self)
-
         await interaction.followup.send(result_text, ephemeral=False)
-        await _close_ticket_channel(self.bot, appeal)
+        await _close_ticket_channel(self.bot, appeal, closed_by=interaction.user, reason="Appeal accepted - unban executed")
 
-    @discord.ui.button(
-        label="Close Ticket",
-        style=discord.ButtonStyle.secondary,
-        custom_id="verdict:close_ticket",
-    )
+    @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.secondary, custom_id="verdict:close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         appeal_id = self._resolve_appeal_id(interaction.message)
@@ -102,20 +81,14 @@ class VerdictPanelView(discord.ui.View):
             return
 
         if appeal["status"] in _ACTIONED_STATUSES:
-            await interaction.followup.send(
-                "This verdict has already been actioned.", ephemeral=True
-            )
+            await interaction.followup.send("This verdict has already been actioned.", ephemeral=True)
             return
 
         await db.close_appeal(appeal_id, "actioned_close")
-
         self._disable_all_buttons()
         await interaction.message.edit(view=self)
-
-        await interaction.followup.send(
-            f"Appeal #{appeal_id} closed by {interaction.user.mention}.", ephemeral=False
-        )
-        await _close_ticket_channel(self.bot, appeal)
+        await interaction.followup.send(f"Appeal {appeal_id} closed by {interaction.user.mention}.", ephemeral=False)
+        await _close_ticket_channel(self.bot, appeal, closed_by=interaction.user, reason="Verdict actioned")
 
     def _resolve_appeal_id(self, message: discord.Message) -> int | None:
         if self._appeal_id_override:
@@ -133,28 +106,50 @@ class VerdictPanelView(discord.ui.View):
                 child.disabled = True
 
 
-async def _close_ticket_channel(bot, appeal):
-    """Send a closing notice then delete the ticket channel."""
+async def _close_ticket_channel(
+    bot,
+    appeal: dict,
+    *,
+    closed_by: discord.Member | discord.User,
+    reason: str,
+) -> None:
+    """Generate a transcript, post it to the results channel, then delete the ticket channel."""
     if not appeal["ticket_channel"]:
         return
+
+    channel = None
     for guild in bot.guilds:
         channel = guild.get_channel(appeal["ticket_channel"])
         if channel:
-            try:
-                close_embed = discord.Embed(
-                    title="🔒  Ticket Closing",
-                    description="This appeal has been resolved. The channel will be deleted in **10 seconds**.",
-                    color=COLOUR_CLOSED,
-                )
-                close_embed.set_author(
-                    name="North Florida Police Department  |  Ban Appeals",
-                    icon_url=BOT_AVATAR_URL,
-                )
-                close_embed.set_footer(text=f"Appeal ID: {appeal['id']}  •  NFPD Ban Appeals")
-                close_embed.timestamp = discord.utils.utcnow()
-                await channel.send(embed=close_embed)
-                await asyncio.sleep(10)
-                await channel.delete(reason=f"Appeal {appeal['id']} resolved.")
-            except discord.HTTPException:
-                pass
-            return
+            break
+
+    if channel is None:
+        return
+
+    # Generate and post the transcript before the channel is deleted.
+    try:
+        config = await bot.db.get_guild_config(appeal["guild_id"])
+        if config and config["results_channel"]:
+            results_channel = channel.guild.get_channel(config["results_channel"])
+            if results_channel:
+                from views.transcript import build_transcript_embed, generate_transcript
+                transcript_file = await generate_transcript(channel, appeal)
+                transcript_embed = build_transcript_embed(appeal, closed_by, reason)
+                await results_channel.send(embed=transcript_embed, file=transcript_file)
+    except Exception:
+        logger.exception("Failed to generate or post transcript for appeal %s", appeal["id"])
+
+    try:
+        close_embed = discord.Embed(
+            title="Ticket Closing",
+            description="This appeal has been resolved. The channel will be deleted in 10 seconds.",
+            color=COLOUR_CLOSED,
+        )
+        close_embed.set_author(name="North Florida Police Department  |  Ban Appeals", icon_url=BOT_AVATAR_URL)
+        close_embed.set_footer(text=f"Appeal ID: {appeal['id']}")
+        close_embed.timestamp = discord.utils.utcnow()
+        await channel.send(embed=close_embed)
+        await asyncio.sleep(10)
+        await channel.delete(reason=f"Appeal {appeal['id']} resolved.")
+    except discord.HTTPException:
+        pass

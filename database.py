@@ -199,6 +199,15 @@ class Database:
                 vote,
             )
 
+    async def get_recent_appeals(self, guild_id: int, limit: int = 5) -> list:
+        async with self._pool.acquire() as conn:
+            return await conn.fetch(
+                "SELECT id, status, roblox_username, appellant_id, created_at "
+                "FROM appeals WHERE guild_id = $1 ORDER BY id DESC LIMIT $2",
+                guild_id,
+                limit,
+            )
+
     async def get_vote_tally(self, appeal_id: int) -> dict:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(

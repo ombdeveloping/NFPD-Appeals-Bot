@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import discord
 
-from config import BAN_TEAM_ROLE_IDS, BOT_AVATAR_URL, COLOUR_ACCEPTED, COLOUR_REJECTED, COLOUR_VOTING
+from config import BAN_TEAM_ROLE_IDS, BOT_AVATAR_URL, COLOUR_ACCEPTED, COLOUR_REJECTED
 
 
 def _build_vote_bar(unban: int, keep: int) -> str:
@@ -57,7 +57,7 @@ class VotingPanelView(discord.ui.View):
 
         if not await self._can_vote(interaction):
             await interaction.followup.send(
-                "❌ You do not have permission to vote on appeals.", ephemeral=True
+                "You do not have permission to vote on appeals.", ephemeral=True
             )
             return
 
@@ -76,7 +76,7 @@ class VotingPanelView(discord.ui.View):
 
         if appeal["status"] != "voting":
             await interaction.followup.send(
-                f"This appeal is **{appeal['status'].replace('_', ' ').title()}** and is no longer accepting votes.",
+                f"This appeal is {appeal['status'].replace('_', ' ')} and is no longer accepting votes.",
                 ephemeral=True,
             )
             return
@@ -93,12 +93,14 @@ class VotingPanelView(discord.ui.View):
         await db.upsert_vote(appeal_id, interaction.user.id, vote)
         tally = await db.get_vote_tally(appeal_id)
 
-        # Fetch a fresh message reference - using the stale interaction.message can fail silently.
         try:
             fresh = await interaction.channel.fetch_message(interaction.message.id)
             await _update_vote_embed(fresh, tally)
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+            logging.getLogger("appeals-bot.voting").warning(
+                "Failed to update voting embed for appeal %s: %s", appeal_id, exc
+            )
 
         label = "Unban" if vote == "unban" else "Keep Banned"
         total = tally["unban"] + tally["keep_banned"]
@@ -107,57 +109,69 @@ class VotingPanelView(discord.ui.View):
         if previous and previous["vote"] == vote:
             msg = f"You have already voted **{label}**."
         elif previous:
-            old = "Unban" if previous["vote"] == "unban" else "Keep Banned"
-            msg = f"Vote updated from **{old}** → **{label}**."
+            old_label = "Unban" if previous["vote"] == "unban" else "Keep Banned"
+            msg = f"Vote changed from **{old_label}** to **{label}**."
         else:
-            msg = f"✅ **{label}** vote recorded."
+            msg = f"**{label}** vote recorded."
 
         color = COLOUR_ACCEPTED if vote == "unban" else COLOUR_REJECTED
-        embed = discord.Embed(color=color)
-        embed.set_author(name="North Florida Police Department  |  Ban Team Vote", icon_url=BOT_AVATAR_URL)
-        embed.description = msg
-        embed.add_field(
+        reply = discord.Embed(color=color)
+        reply.set_author(name="North Florida Police Department  |  Ban Team Vote", icon_url=BOT_AVATAR_URL)
+        reply.description = msg
+        reply.add_field(
             name="Current Tally",
             value=(
-                f"🟢 Unban: **{tally['unban']}**  •  🔴 Keep Banned: **{tally['keep_banned']}**\n"
-                f"🟢 {bar} 🔴  •  **{total}** total"
+                f"Unban: **{tally['unban']}**  -  Keep Banned: **{tally['keep_banned']}**\n"
+                f"🟢 {bar} 🔴  -  **{total}** total"
             ),
             inline=False,
         )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=reply, ephemeral=True)
 
 
 async def _update_vote_embed(message: discord.Message, tally: dict) -> None:
-    if not message or not message.embeds:
+    """Update the vote count fields on the voting embed.
+
+    Uses set_field_at by position rather than matching field names, which avoids
+    any fragility around spacing or emoji variants in field names.
+
+    The voting embed always ends with three fields in order:
+    Vote Progress, Unban, Keep Banned. We find their indices by checking whether
+    "Progress", "Unban", or "Keep" appears in the field name.
+    """
+    if not message.embeds:
         return
 
     embed = message.embeds[0]
+    fields = embed.fields
+    if not fields:
+        return
+
     bar = _build_vote_bar(tally["unban"], tally["keep_banned"])
     total = tally["unban"] + tally["keep_banned"]
 
-    new_fields = []
-    for field in embed.fields:
-        # Match with or without emoji prefix - the embed uses emoji names, older messages may not
+    for index, field in enumerate(fields):
         name = field.name
-        if name in ("Unban", "🟢 Unban", "\U0001F7E2 Unban"):
-            new_fields.append(discord.EmbedField(
-                name="🟢 Unban", value=f"**{tally['unban']}** vote(s)", inline=True
-            ))
-        elif name in ("Keep Banned", "🔴 Keep Banned", "\U0001F534 Keep Banned"):
-            new_fields.append(discord.EmbedField(
-                name="🔴 Keep Banned", value=f"**{tally['keep_banned']}** vote(s)", inline=True
-            ))
-        elif name in ("Vote Progress", "📊 Vote Progress", "\U0001F4CA Vote Progress"):
-            new_fields.append(discord.EmbedField(
-                name="📊 Vote Progress",
+        if "Progress" in name:
+            embed.set_field_at(
+                index,
+                name=name,
                 value=f"🟢 {bar} 🔴\n**{total}** vote(s) cast",
                 inline=False,
-            ))
-        else:
-            new_fields.append(field)
-
-    embed.clear_fields()
-    for field in new_fields:
-        embed.add_field(name=field.name, value=field.value, inline=field.inline)
+            )
+        elif "Unban" in name:
+            embed.set_field_at(
+                index,
+                name=name,
+                value=f"**{tally['unban']}** vote(s)",
+                inline=True,
+            )
+        elif "Keep" in name:
+            embed.set_field_at(
+                index,
+                name=name,
+                value=f"**{tally['keep_banned']}** vote(s)",
+                inline=True,
+            )
 
     await message.edit(embed=embed)
