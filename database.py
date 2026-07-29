@@ -42,6 +42,11 @@ class Database:
                 )
             """)
 
+            # Add platform column if it doesn't exist yet (migration for existing deployments).
+            await conn.execute(
+                "ALTER TABLE appeals ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'Unknown'"
+            )
+
             # Partial unique index: one open appeal per user per guild.
             # Unlike UNIQUE(guild_id, appellant_id, status), this only fires when status='open',
             # so closed/rejected/accepted appeals can accumulate freely.
@@ -110,13 +115,14 @@ class Database:
         discord_tag: str,
         ban_reason: str,
         appeal_reason: str,
+        platform: str,
     ) -> int:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
                 INSERT INTO appeals
-                    (guild_id, appellant_id, roblox_username, discord_tag, ban_reason, appeal_reason)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                    (guild_id, appellant_id, roblox_username, discord_tag, ban_reason, appeal_reason, platform)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING id
                 """,
                 guild_id,
@@ -125,6 +131,7 @@ class Database:
                 discord_tag,
                 ban_reason,
                 appeal_reason,
+                platform,
             )
             return row["id"]
 

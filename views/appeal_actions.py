@@ -103,22 +103,29 @@ class AppealActionsView(discord.ui.View):
         appeal_id = self._resolve_appeal_id(interaction.channel)
         db = self.bot.db
 
+        import logging
+        _logger = logging.getLogger("appeals-bot.transcript")
+
         if appeal_id:
             appeal = await db.get_appeal(appeal_id)
-            if appeal and appeal["status"] == "open":
+            if appeal and appeal["status"] not in ("actioned_unban", "actioned_close"):
                 await db.close_appeal(appeal_id, "closed")
 
-                # Auto-transcript to results channel on close.
                 config = await db.get_guild_config(interaction.guild_id)
                 if config and config.get("results_channel"):
                     results_channel = interaction.guild.get_channel(config["results_channel"])
+                    if results_channel is None:
+                        try:
+                            results_channel = await interaction.guild.fetch_channel(config["results_channel"])
+                        except discord.HTTPException:
+                            _logger.warning("Could not find results channel %s", config["results_channel"])
                     if results_channel:
                         try:
                             transcript_file = await generate_transcript(interaction.channel, appeal)
-                            embed = build_transcript_embed(appeal, interaction.user, "Closed by staff before voting")
+                            embed = build_transcript_embed(appeal, interaction.user, "Closed by staff")
                             await results_channel.send(embed=embed, file=transcript_file)
                         except Exception:
-                            pass
+                            _logger.exception("Failed to post transcript for appeal %s", appeal_id)
 
         await interaction.followup.send("Closing ticket in 5 seconds...", ephemeral=True)
         await asyncio.sleep(5)
@@ -144,6 +151,7 @@ def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
         color=COLOUR_VOTING,
     )
     embed.set_author(name="North Florida Police Department  |  Ban Team Vote", icon_url=BOT_AVATAR_URL)
+    embed.add_field(name="Banned on", value=appeal.get("platform", "Unknown"), inline=True)
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)

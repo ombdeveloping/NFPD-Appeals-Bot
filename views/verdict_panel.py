@@ -131,6 +131,11 @@ async def _close_ticket_channel(
         config = await bot.db.get_guild_config(appeal["guild_id"])
         if config and config["results_channel"]:
             results_channel = channel.guild.get_channel(config["results_channel"])
+            if results_channel is None:
+                try:
+                    results_channel = await channel.guild.fetch_channel(config["results_channel"])
+                except discord.HTTPException:
+                    logger.warning("Could not find results channel %s", config["results_channel"])
             if results_channel:
                 from views.transcript import build_transcript_embed, generate_transcript
                 transcript_file = await generate_transcript(channel, appeal)

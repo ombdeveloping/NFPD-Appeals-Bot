@@ -126,6 +126,7 @@ class AppealsCog(commands.Cog):
         status_indicator = _status_indicator(status)
 
         embed.add_field(name="Status", value=f"{status_indicator} {status_display}", inline=True)
+        embed.add_field(name="Banned on", value=appeal.get("platform", "Unknown"), inline=True)
         embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
         embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
         embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
