@@ -24,7 +24,7 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
     )
     appeal_reason = discord.ui.TextInput(
         label="Why Should You Be Unbanned?",
-        placeholder="Explain your case clearly and honestly. Be specific.",
+        placeholder="Explain your case honestly and in detail.",
         style=discord.TextStyle.paragraph,
         max_length=1000,
     )
@@ -40,7 +40,6 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
         guild_id = interaction.guild_id
         user_id = interaction.user.id
 
-        # Double-check one open appeal per user (belt-and-suspenders on top of the DB index).
         existing = await db.get_open_appeal_for_user(guild_id, user_id)
         if existing:
             await interaction.followup.send(
@@ -79,29 +78,22 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
             )
             return
 
-        # Build permission overwrites. Ban team role gets read access so staff can
-        # review the case and use the Forward / Close buttons.
+        # Build channel overwrites - ban team gets full view/send access.
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
+                view_channel=True, send_messages=True, read_message_history=True,
             ),
             interaction.guild.me: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                manage_channels=True,
-                manage_messages=True,
+                view_channel=True, send_messages=True, manage_channels=True, manage_messages=True,
             ),
         }
+        ban_team_role = None
         if config.get("ban_team_role"):
             ban_team_role = interaction.guild.get_role(config["ban_team_role"])
             if ban_team_role:
                 overwrites[ban_team_role] = discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
+                    view_channel=True, send_messages=True, read_message_history=True,
                 )
 
         ticket_channel = await interaction.guild.create_text_channel(
@@ -113,23 +105,25 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
 
         await db.set_appeal_ticket_channel(appeal_id, ticket_channel.id)
 
+        # --- Appellant-facing notice ---
         notice_embed = discord.Embed(
-            title="\U00002705  Appeal Submitted",
+            title="✅  Appeal Submitted",
             description=(
-                "Your appeal has been received and is pending staff review.\n\n"
-                "A staff member will assess your case and forward it to the Ban Team. "
-                "You will be notified here once a verdict is reached.\n\n"
-                "Please be patient and do not submit further appeals while this one is open."
+                "Your appeal has been received and is now pending review by NFPD staff.\n\n"
+                "**What happens next:**\n"
+                "> A staff member will review your case and forward it to the Ban Team.\n"
+                "> The Ban Team will vote within **48 hours** of the appeal being forwarded.\n"
+                "> You will be notified in this channel when a verdict is reached.\n\n"
+                "Please be patient. Do not submit duplicate appeals."
             ),
             color=COLOUR_INFO,
         )
-        notice_embed.set_author(
-            name="North Florida Police Department  |  Ban Appeals",
-            icon_url=BOT_AVATAR_URL,
-        )
-        notice_embed.set_footer(text=f"Appeal ID: {appeal_id}  |  NFPD Ban Appeals")
+        notice_embed.set_author(name="North Florida Police Department  |  Ban Appeals", icon_url=BOT_AVATAR_URL)
+        notice_embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        notice_embed.set_footer(text=f"Appeal ID: {appeal_id}  •  NFPD Ban Appeals")
         notice_embed.timestamp = discord.utils.utcnow()
 
+        # --- Staff-facing case file ---
         case_embed = _build_appeal_embed(
             appeal_id=appeal_id,
             appellant=interaction.user,
@@ -146,14 +140,19 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
             view=AppealActionsView(self.bot, appeal_id),
         )
 
+        # Ping the ban team so staff see the new ticket immediately.
+        if ban_team_role:
+            await ticket_channel.send(
+                f"{ban_team_role.mention} — A new ban appeal requires review.",
+                allowed_mentions=discord.AllowedMentions(roles=True),
+            )
+
         await interaction.followup.send(
-            f"Your appeal has been submitted. You can track its progress in {ticket_channel.mention}.",
+            f"✅ Your appeal has been submitted. Track its progress in {ticket_channel.mention}.",
             ephemeral=True,
         )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception):
-        # interaction.response.defer() was already called in on_submit,
-        # so we must use followup here, not response.send_message.
         try:
             await interaction.followup.send(
                 "Something went wrong while submitting your appeal. Please try again.",
@@ -173,18 +172,19 @@ def _build_appeal_embed(
     appeal_reason: str,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title=f"Case File  |  Appeal #{appeal_id}",
-        color=COLOUR_PRIMARY,
+        title=f"📋  Case File  —  Appeal #{appeal_id}",
+        color=0x1E3A5F,  # deep navy - distinct from the info blue
     )
-    embed.set_author(
-        name="North Florida Police Department  |  Staff Review",
-        icon_url=BOT_AVATAR_URL,
-    )
+    embed.set_author(name="North Florida Police Department  |  Staff Review", icon_url=BOT_AVATAR_URL)
+    embed.set_thumbnail(url=appellant.display_avatar.url)
+
     embed.add_field(name="Roblox Username", value=f"`{roblox_username}`", inline=True)
-    embed.add_field(name="Discord Tag", value=discord_tag, inline=True)
+    embed.add_field(name="Discord", value=discord_tag, inline=True)
     embed.add_field(name="Submitted By", value=appellant.mention, inline=True)
-    embed.add_field(name="Reason for Ban", value=ban_reason, inline=False)
-    embed.add_field(name="Appeal Statement", value=appeal_reason, inline=False)
-    embed.set_footer(text=f"Appeal ID: {appeal_id}  |  Awaiting staff review")
+
+    embed.add_field(name="🚫  Reason for Ban", value=ban_reason, inline=False)
+    embed.add_field(name="📝  Appeal Statement", value=appeal_reason, inline=False)
+
+    embed.set_footer(text=f"Appeal ID: {appeal_id}  •  Awaiting staff review")
     embed.timestamp = discord.utils.utcnow()
     return embed

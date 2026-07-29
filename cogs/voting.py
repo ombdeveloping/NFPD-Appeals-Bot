@@ -156,44 +156,38 @@ async def _dm_appellant(bot, appeal, *, verdict: str) -> None:
 
 
 def _build_verdict_embed(appeal, tally: dict, total_votes: int, unban_wins: bool) -> discord.Embed:
+    from views.voting_panel import _build_vote_bar
     colour = COLOUR_ACCEPTED if unban_wins else COLOUR_REJECTED
-    outcome_text = "UNBAN APPROVED" if unban_wins else "KEEP BANNED"
-    outcome_icon = "🟢" if unban_wins else "🔴"
-    next_step = (
-        "Use **Execute Unban** to lift the ban, or **Close Ticket** to dismiss without action."
+    outcome = "UNBAN APPROVED" if unban_wins else "KEEP BANNED"
+    icon = "🟢" if unban_wins else "🔴"
+    bar = _build_vote_bar(tally["unban"], tally["keep_banned"])
+    action = (
+        "Use **Execute Unban** to lift the ban, or **Close Ticket** to dismiss."
         if unban_wins
         else "Use **Close Ticket** to formally close this appeal."
     )
 
-    from cogs.appeals import _build_vote_bar
-    vote_bar = _build_vote_bar(tally["unban"], tally["keep_banned"])
-
     embed = discord.Embed(
-        title=f"{outcome_icon}  Voting Closed  -  {outcome_text}",
+        title=f"{icon}  Voting Closed  —  {outcome}",
         description=(
-            f"The 48-hour voting window for Appeal #{appeal['id']} has ended.\n\n"
-            f"{next_step}"
+            f"The voting window for Appeal #{appeal['id']} has closed.\n\n"
+            f"{action}"
         ),
         color=colour,
     )
-    embed.set_author(
-        name="North Florida Police Department  |  Verdict",
-        icon_url=BOT_AVATAR_URL,
-    )
+    embed.set_author(name="North Florida Police Department  |  Verdict", icon_url=BOT_AVATAR_URL)
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
-
     embed.add_field(
-        name=f"Final Vote  ({total_votes} cast)",
+        name=f"📊 Final Vote  ({total_votes} cast)",
         value=(
-            f"{vote_bar}\n"
-            f"Unban: **{tally['unban']}**  |  Keep Banned: **{tally['keep_banned']}**"
+            f"🟢 {bar} 🔴\n"
+            f"**{tally['unban']}** unban  •  **{tally['keep_banned']}** keep banned"
         ),
         inline=False,
     )
-
-    embed.set_footer(text=f"Appeal ID: {appeal['id']}  |  Voting closed")
+    embed.set_footer(text=f"Appeal ID: {appeal['id']}  •  Voting closed")
     embed.timestamp = discord.utils.utcnow()
     return embed
 

@@ -83,18 +83,18 @@ class DashboardCog(commands.Cog):
 
 def _build_dashboard_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="Ban Appeals",
+        title="🚔  NFPD Ban Appeals",
         description=(
-            "If you believe your ban was issued in error, or you have reflected on your conduct "
-            "and wish to request reconsideration, you may submit a formal appeal below.\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**Before you submit, read this carefully:**\n\n"
-            "> Appeals are reviewed by the NFPD Ban Team.\n"
-            "> You may only hold **one open appeal** at a time.\n"
-            "> The review process takes up to **48 hours** after submission.\n"
-            "> Dishonest or frivolous appeals may result in a permanent ban.\n"
-            "> Be clear, honest, and respectful.\n"
-            "━━━━━━━━━━━━━━━━━━━━━━"
+            "If you believe your ban was issued in error, or you have since reflected on your "
+            "conduct and wish to request reconsideration, you may submit a formal appeal below.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "**📌  Before you submit:**\n\n"
+            "> 🔵  Appeals are reviewed by the NFPD Ban Team.\n"
+            "> 📂  You may only hold **one open appeal** at a time.\n"
+            "> ⏱️  Reviews take up to **48 hours** once forwarded to the team.\n"
+            "> ⚠️  Dishonest or frivolous appeals may result in a permanent ban.\n"
+            "> ✏️  Be clear, honest, and respectful in your statement.\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         color=COLOUR_PRIMARY,
     )
@@ -102,5 +102,5 @@ def _build_dashboard_embed() -> discord.Embed:
         name="North Florida Police Department  |  Ban Appeals",
         icon_url=BOT_AVATAR_URL,
     )
-    embed.set_footer(text="Tap the button below to begin  •  NFPD Ban Appeals")
+    embed.set_footer(text="Press the button below to begin your appeal  •  NFPD Ban Appeals")
     return embed
