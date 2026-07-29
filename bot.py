@@ -32,29 +32,47 @@ class AppealsBot(commands.Bot):
         self.db: Database = None
 
     async def setup_hook(self):
-        self.db = Database(DATABASE_URL)
-        await self.db.initialise()
+        # Wrap database setup so a connection failure gives a readable error
+        # rather than a traceback that looks like the bot crashed for no reason.
+        try:
+            self.db = Database(DATABASE_URL)
+            await self.db.initialise()
+            logger.info("Database connected.")
+        except Exception as exc:
+            logger.error(
+                "Database connection failed: %s\n"
+                "Check DATABASE_URL in Railway's Variables tab. "
+                "Make sure a PostgreSQL plugin is attached to this service.",
+                exc,
+            )
+            raise
 
         await self.add_cog(DashboardCog(self))
         await self.add_cog(AppealsCog(self))
         await self.add_cog(VotingCog(self))
 
-        await self.tree.sync()
-        logger.info("Slash commands synced.")
+        try:
+            synced = await self.tree.sync()
+            logger.info("Synced %d slash command(s).", len(synced))
+        except Exception as exc:
+            logger.error("Slash command sync failed: %s", exc)
 
     async def on_ready(self):
         logger.info("Logged in as %s (%s)", self.user, self.user.id)
+        logger.info("In %d guild(s).", len(self.guilds))
 
+        # Warn loudly if the allowlist is empty - this is the #1 reason the bot
+        # appears offline (it joins then immediately leaves every server).
         if not APPROVED_GUILD_IDS:
             logger.error(
                 "\n"
-                "  *** APPROVED_GUILD_IDS IS EMPTY ***\n"
-                "  The bot will leave every server it joins.\n"
-                "  Set APPROVED_GUILD_IDS in Railway's Variables tab.\n"
-                "  Example: APPROVED_GUILD_IDS=123456789012345678,987654321098765432\n"
+                "  *** APPROVED_GUILD_IDS IS EMPTY - BOT WILL LEAVE EVERY SERVER ***\n"
+                "  Go to Railway -> your service -> Variables and add:\n"
+                "  APPROVED_GUILD_IDS=<your server ID>\n"
+                "  Right-click your server icon in Discord -> Copy Server ID\n"
             )
 
-        # Register persistent views so buttons survive restarts.
+        # Register persistent views so buttons on old messages survive restarts.
         from views.appeal_panel import AppealPanelView
         from views.voting_panel import VotingPanelView
         from views.verdict_panel import VerdictPanelView
@@ -65,14 +83,13 @@ class AppealsBot(commands.Bot):
         self.add_view(VerdictPanelView(self))
         self.add_view(AppealActionsView(self))
 
-        # Audit every guild the bot is already in on startup.
-        # If the bot was added to an unapproved server while offline, handle it now.
+        # Audit current guilds. If the bot was added to an unapproved server
+        # while offline, handle it now rather than silently sitting there.
         for guild in self.guilds:
-            if not _is_approved(guild):
-                logger.warning(
-                    "Currently in unapproved guild %s (%s) - handling now",
-                    guild.name, guild.id,
-                )
+            if _is_approved(guild):
+                logger.info("Approved guild: %s (%s)", guild.name, guild.id)
+            else:
+                logger.warning("Unapproved guild on startup: %s (%s)", guild.name, guild.id)
                 await _handle_unapproved_guild(self, guild)
 
     async def on_guild_join(self, guild: discord.Guild):
@@ -90,6 +107,7 @@ class AppealsBot(commands.Bot):
 # ---------------------------------------------------------------------------
 
 def _is_approved(guild: discord.Guild) -> bool:
+    # An empty allowlist means nothing is approved - bot leaves everything.
     return bool(APPROVED_GUILD_IDS) and guild.id in APPROVED_GUILD_IDS
 
 
@@ -103,7 +121,7 @@ async def _alert_developers(bot: AppealsBot, message: str) -> None:
 
 
 async def _handle_unapproved_guild(bot: AppealsBot, guild: discord.Guild) -> None:
-    """Alert developers with full details then optionally leave the guild."""
+    """DM developers with full details then optionally leave."""
     inviter_name, inviter_id = "Unknown", "Unknown"
     try:
         async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.bot_add):
@@ -125,9 +143,17 @@ async def _handle_unapproved_guild(bot: AppealsBot, guild: discord.Guild) -> Non
         except discord.HTTPException:
             continue
 
-    action_note = "Leaving automatically." if LEAVE_UNAPPROVED_GUILDS else "Auto-leave is disabled - bot will remain."
+    action_note = (
+        "Leaving automatically."
+        if LEAVE_UNAPPROVED_GUILDS
+        else "LEAVE_UNAPPROVED_GUILDS=false - bot is staying but is not approved."
+    )
 
-    embed = discord.Embed(title="Unapproved Server Join", color=0xDC2626, timestamp=discord.utils.utcnow())
+    embed = discord.Embed(
+        title="Unapproved Server Join",
+        color=0xDC2626,
+        timestamp=discord.utils.utcnow(),
+    )
     embed.add_field(name="Server", value=f"{guild.name}\n`{guild.id}`", inline=True)
     embed.add_field(name="Members", value=str(guild.member_count), inline=True)
     embed.add_field(name="Added by", value=f"{inviter_name}\n`{inviter_id}`", inline=True)
@@ -142,7 +168,6 @@ async def _handle_unapproved_guild(bot: AppealsBot, guild: discord.Guild) -> Non
             pass
 
     if LEAVE_UNAPPROVED_GUILDS:
-        # Post notice before leaving so the server owner sees why.
         try:
             channel = guild.system_channel or next(
                 (ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages),
@@ -157,7 +182,7 @@ async def _handle_unapproved_guild(bot: AppealsBot, guild: discord.Guild) -> Non
             await guild.leave()
             logger.info("Left unapproved guild %s (%s)", guild.name, guild.id)
         except discord.HTTPException as exc:
-            logger.warning("Failed to leave unapproved guild %s (%s): %s", guild.name, guild.id, exc)
+            logger.warning("Could not leave %s (%s): %s", guild.name, guild.id, exc)
 
 
 def main():

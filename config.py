@@ -20,6 +20,10 @@ add developers, or change vote thresholds.
   MINIMUM_VOTES          Votes needed for a valid appeal result (default: 3).
 
   VOTING_HOURS           How many hours the voting window stays open (default: 48).
+
+  BAN_TEAM_ROLE_IDS      Comma-separated role IDs whose members are allowed to vote.
+                         If empty, anyone in the voting channel can vote.
+                         These supplement (not replace) the ban_team_role set via /setup.
 """
 import os
 import sys
@@ -87,6 +91,7 @@ DEVELOPER_IDS: set[int] = _parse_id_list("DEVELOPER_IDS", default="1285998518213
 
 MINIMUM_VOTES: int = _parse_int("MINIMUM_VOTES", default=3)
 VOTING_HOURS: int  = _parse_int("VOTING_HOURS", default=48)
+BAN_TEAM_ROLE_IDS: set[int] = _parse_id_list("BAN_TEAM_ROLE_IDS")
 
 # ── Brand ─────────────────────────────────────────────────────────────────────
 

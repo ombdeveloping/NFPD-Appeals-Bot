@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 
 import discord
 
+from config import BAN_TEAM_ROLE_IDS
+
 
 class VotingPanelView(discord.ui.View):
     """Unban / Keep Banned buttons in the ban team voting channel."""
@@ -12,7 +14,7 @@ class VotingPanelView(discord.ui.View):
         self.appeal_id = appeal_id
 
     def _resolve_appeal_id(self, message: discord.Message) -> int | None:
-        """Fall back to parsing the embed footer when the instance ID is 0 (post-restart)."""
+        """Fall back to parsing the embed footer when instance ID is 0 (post-restart)."""
         if self.appeal_id:
             return self.appeal_id
         try:
@@ -22,16 +24,45 @@ class VotingPanelView(discord.ui.View):
         except (IndexError, ValueError, AttributeError):
             return None
 
-    async def _check_voter_role(self, interaction: discord.Interaction) -> bool:
-        """Return True if the user has the ban team role (or no role is configured)."""
-        db = self.bot.db
-        config = await db.get_guild_config(interaction.guild_id)
-        if not config or not config["ban_team_role"]:
-            return True
-        role = interaction.guild.get_role(config["ban_team_role"])
-        if role is None:
-            return True
-        return role in interaction.user.roles
+    async def _can_vote(self, interaction: discord.Interaction) -> bool:
+        """Check voter is allowed to vote.
+
+        Two-layer check:
+          1. BAN_TEAM_ROLE_IDS env var - a global role allowlist (if set).
+          2. The ban_team_role stored in guild config via /setup.
+        Either one passing is sufficient. If neither is configured, anyone can vote.
+        """
+        member_role_ids = {role.id for role in interaction.user.roles}
+
+        # Layer 1: global env-var role list
+        if BAN_TEAM_ROLE_IDS:
+            if member_role_ids & BAN_TEAM_ROLE_IDS:
+                return True
+            # If a global list IS set and they're not in it, also check DB role below
+            # before rejecting - they might have the per-guild role instead.
+
+        # Layer 2: per-guild role stored by /setup
+        try:
+            config = await self.bot.db.get_guild_config(interaction.guild_id)
+            if config and config["ban_team_role"]:
+                if config["ban_team_role"] in member_role_ids:
+                    return True
+        except Exception:
+            pass
+
+        # If either layer was configured and they didn't pass, deny.
+        if BAN_TEAM_ROLE_IDS:
+            return False
+
+        # No restrictions configured at all - check if /setup role is set
+        try:
+            config = await self.bot.db.get_guild_config(interaction.guild_id)
+            if config and config["ban_team_role"]:
+                return False  # Role IS configured and they don't have it
+        except Exception:
+            pass
+
+        return True  # Nothing configured, allow anyone
 
     @discord.ui.button(
         label="Unban",
@@ -51,11 +82,10 @@ class VotingPanelView(discord.ui.View):
 
     async def _handle_vote(self, interaction: discord.Interaction, vote: str):
         await interaction.response.defer(ephemeral=True)
-        db = self.bot.db
 
-        if not await self._check_voter_role(interaction):
+        if not await self._can_vote(interaction):
             await interaction.followup.send(
-                "You do not have the required role to vote on appeals.", ephemeral=True
+                "You do not have permission to vote on appeals.", ephemeral=True
             )
             return
 
@@ -67,6 +97,7 @@ class VotingPanelView(discord.ui.View):
             )
             return
 
+        db = self.bot.db
         appeal = await db.get_appeal(appeal_id)
         if not appeal or appeal["status"] != "voting":
             await interaction.followup.send(
