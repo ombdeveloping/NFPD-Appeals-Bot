@@ -2,7 +2,7 @@ import asyncio
 
 import discord
 
-from config import COLOUR_CLOSED
+from config import BOT_AVATAR_URL, COLOUR_CLOSED
 
 # Statuses that mean the verdict has already been actioned by staff.
 _ACTIONED_STATUSES = {"actioned_unban", "actioned_close"}
@@ -148,6 +148,10 @@ async def _close_ticket_channel(bot, appeal):
                         "The ticket will be deleted in 10 seconds."
                     ),
                     color=COLOUR_CLOSED,
+                )
+                close_embed.set_author(
+                    name="North Florida Police Department  |  Ban Appeals",
+                    icon_url=BOT_AVATAR_URL,
                 )
                 close_embed.set_footer(text=f"Appeal ID: {appeal['id']}  |  NFPD Ban Appeals")
                 close_embed.timestamp = discord.utils.utcnow()

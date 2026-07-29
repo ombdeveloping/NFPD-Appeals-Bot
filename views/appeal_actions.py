@@ -3,7 +3,13 @@ from datetime import datetime, timezone, timedelta
 
 import discord
 
-from config import COLOUR_VOTING, COLOUR_PRIMARY, COLOUR_CLOSED
+from config import (
+    BOT_AVATAR_URL,
+    COLOUR_VOTING,
+    COLOUR_CLOSED,
+    MINIMUM_VOTES,
+    VOTING_HOURS,
+)
 
 
 class AppealActionsView(discord.ui.View):
@@ -15,7 +21,6 @@ class AppealActionsView(discord.ui.View):
         self.appeal_id = appeal_id
 
     def _resolve_appeal_id(self, channel: discord.TextChannel) -> int | None:
-        """Parse the appeal ID from the channel topic when instance var is 0 (post-restart)."""
         if self.appeal_id:
             return self.appeal_id
         if channel.topic and "Appeal ID:" in channel.topic:
@@ -36,7 +41,8 @@ class AppealActionsView(discord.ui.View):
         appeal_id = self._resolve_appeal_id(interaction.channel)
         if not appeal_id:
             await interaction.followup.send(
-                "Could not determine the appeal ID for this ticket.", ephemeral=True
+                "Could not determine the appeal ID for this ticket. Contact an admin.",
+                ephemeral=True,
             )
             return
 
@@ -45,25 +51,28 @@ class AppealActionsView(discord.ui.View):
 
         if not config or not config["voting_channel"]:
             await interaction.followup.send(
-                "No voting channel is configured. Run `/setup` first.", ephemeral=True
+                "No voting channel is configured. Run `/setup` first.",
+                ephemeral=True,
             )
             return
 
         appeal = await db.get_appeal(appeal_id)
         if not appeal:
-            await interaction.followup.send("Could not find this appeal.", ephemeral=True)
+            await interaction.followup.send("This appeal could not be found.", ephemeral=True)
             return
 
         if appeal["status"] != "open":
             await interaction.followup.send(
-                "This appeal has already been forwarded or closed.", ephemeral=True
+                f"This appeal is already **{appeal['status'].replace('_', ' ').title()}** and cannot be forwarded.",
+                ephemeral=True,
             )
             return
 
         voting_channel = interaction.guild.get_channel(config["voting_channel"])
         if not voting_channel:
             await interaction.followup.send(
-                "Cannot find the voting channel. Please contact an admin.", ephemeral=True
+                "The configured voting channel could not be found. Check `/setup`.",
+                ephemeral=True,
             )
             return
 
@@ -80,12 +89,12 @@ class AppealActionsView(discord.ui.View):
         await db.set_appeal_voting(appeal_id, voting_msg.id, closes_at)
 
         button.disabled = True
-        button.label = "Forwarded to Ban Team"
+        button.label = "Forwarded to Ban Team \u2714"
         await interaction.message.edit(view=self)
 
         await interaction.followup.send(
             f"Appeal forwarded to {voting_channel.mention}. "
-            f"Voting closes <t:{int(closes_at.timestamp())}:R>.",
+            f"Voting closes {discord.utils.format_dt(closes_at, 'R')}.",
             ephemeral=True,
         )
 
@@ -117,36 +126,33 @@ class AppealActionsView(discord.ui.View):
 
 def _build_voting_embed(appeal, closes_at: datetime) -> discord.Embed:
     embed = discord.Embed(
-        title=f"Appeal #{appeal['id']}  |  Team Review Required",
+        title=f"Appeal #{appeal['id']}  |  Ban Team Review",
         description=(
-            "A ban appeal has been escalated for team review. "
-            "Read the case below and cast your vote.\n\n"
-            f"A minimum of **3 votes** is required for a valid result. "
-            f"Voting closes <t:{int(closes_at.timestamp())}:R>."
+            "A ban appeal requires your vote. Review the case below and cast your decision.\n\n"
+            f"A minimum of **{MINIMUM_VOTES} votes** are required for a valid result. "
+            f"Voting closes {discord.utils.format_dt(closes_at, 'R')}."
         ),
         color=COLOUR_VOTING,
     )
-    embed.set_author(name="NFPD Ban Appeals  |  Ban Team Vote")
-
+    embed.set_author(
+        name="North Florida Police Department  |  Ban Team Vote",
+        icon_url=BOT_AVATAR_URL,
+    )
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
-
     embed.add_field(name="Reason for Ban", value=appeal["ban_reason"], inline=False)
     embed.add_field(name="Appeal Statement", value=appeal["appeal_reason"], inline=False)
-
     embed.add_field(
         name="Voting Window",
         value=(
-            f"Opens: <t:{int(datetime.now(timezone.utc).timestamp())}:F>\n"
-            f"Closes: <t:{int(closes_at.timestamp())}:F>"
+            f"Opened: {discord.utils.format_dt(datetime.now(timezone.utc), 'F')}\n"
+            f"Closes: {discord.utils.format_dt(closes_at, 'F')}"
         ),
         inline=False,
     )
-
     embed.add_field(name="Unban", value="**0** vote(s)", inline=True)
     embed.add_field(name="Keep Banned", value="**0** vote(s)", inline=True)
-
-    embed.set_footer(text=f"Appeal ID: {appeal['id']}  |  Minimum 3 votes required")
+    embed.set_footer(text=f"Appeal ID: {appeal['id']}  |  Minimum {MINIMUM_VOTES} votes required")
     embed.timestamp = discord.utils.utcnow()
     return embed

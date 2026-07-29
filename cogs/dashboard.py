@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import COLOUR_PRIMARY
+from config import BOT_AVATAR_URL, COLOUR_PRIMARY
 
 
 class DashboardCog(commands.Cog):
@@ -43,7 +43,7 @@ class DashboardCog(commands.Cog):
         embed.add_field(name="Voting Channel", value=voting_channel.mention, inline=True)
         embed.add_field(name="Results Channel", value=results_channel.mention, inline=True)
         embed.add_field(name="Ban Team Role", value=ban_team_role.mention, inline=True)
-        embed.set_footer(text="NFPD Appeals System")
+        embed.set_footer(text="North Florida Police Department  |  Ban Appeals System")
         embed.timestamp = discord.utils.utcnow()
 
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -98,6 +98,9 @@ def _build_dashboard_embed() -> discord.Embed:
         ),
         color=COLOUR_PRIMARY,
     )
-    embed.set_author(name="NFPD  |  National Force Police Department")
+    embed.set_author(
+        name="North Florida Police Department  |  Ban Appeals",
+        icon_url=BOT_AVATAR_URL,
+    )
     embed.set_footer(text="Tap the button below to begin  •  NFPD Ban Appeals")
     return embed

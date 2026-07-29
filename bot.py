@@ -2,6 +2,7 @@ import logging
 import os
 
 import discord
+import config as _config
 from discord.ext import commands
 
 from config import (
@@ -59,6 +60,7 @@ class AppealsBot(commands.Bot):
 
     async def on_ready(self):
         logger.info("Logged in as %s (%s)", self.user, self.user.id)
+        _config.BOT_AVATAR_URL = self.user.display_avatar.url
         logger.info("In %d guild(s).", len(self.guilds))
 
         # Warn loudly if the allowlist is empty - this is the #1 reason the bot

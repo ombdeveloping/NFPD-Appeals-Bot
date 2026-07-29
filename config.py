@@ -109,3 +109,7 @@ UNAUTHORISED_GUILD_MESSAGE = (
     "**Username:** ombdeveloping\n"
     "**Discord ID:** `1285998518213017663`"
 )
+
+# Bot avatar URL - set at startup in on_ready so all embed builders can reference it.
+# Do not set this manually; it is populated automatically.
+BOT_AVATAR_URL: str | None = None

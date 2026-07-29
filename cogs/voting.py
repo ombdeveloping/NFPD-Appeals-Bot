@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands, tasks
 
 from config import (
+    BOT_AVATAR_URL,
     MINIMUM_VOTES,
     VOTING_HOURS,
     COLOUR_ACCEPTED,
@@ -175,7 +176,10 @@ def _build_verdict_embed(appeal, tally: dict, total_votes: int, unban_wins: bool
         ),
         color=colour,
     )
-    embed.set_author(name="NFPD Ban Appeals  |  Verdict")
+    embed.set_author(
+        name="North Florida Police Department  |  Verdict",
+        icon_url=BOT_AVATAR_URL,
+    )
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Appellant", value=f"<@{appeal['appellant_id']}>", inline=True)
@@ -204,7 +208,10 @@ def _build_inconclusive_embed(appeal, tally: dict, total_votes: int) -> discord.
         ),
         color=COLOUR_CLOSED,
     )
-    embed.set_author(name="NFPD Ban Appeals  |  Inconclusive")
+    embed.set_author(
+        name="North Florida Police Department  |  Inconclusive",
+        icon_url=BOT_AVATAR_URL,
+    )
     embed.add_field(name="Roblox Username", value=f"`{appeal['roblox_username']}`", inline=True)
     embed.add_field(name="Discord", value=appeal["discord_tag"], inline=True)
     embed.add_field(name="Unban Votes", value=str(tally["unban"]), inline=True)

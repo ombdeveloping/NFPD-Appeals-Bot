@@ -1,6 +1,6 @@
 import discord
 
-from config import COLOUR_INFO, COLOUR_PRIMARY
+from config import BOT_AVATAR_URL, COLOUR_INFO, COLOUR_PRIMARY
 
 
 class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
@@ -114,14 +114,18 @@ class AppealModal(discord.ui.Modal, title="NFPD Ban Appeal"):
         await db.set_appeal_ticket_channel(appeal_id, ticket_channel.id)
 
         notice_embed = discord.Embed(
-            title="Appeal Received",
+            title="\U00002705  Appeal Submitted",
             description=(
-                "Your appeal has been submitted and is awaiting review by the NFPD Ban Team.\n\n"
-                "A staff member will forward it to the team shortly. "
-                "You will be notified in this channel when a verdict is reached.\n\n"
-                "**Do not submit duplicate appeals.** Please be patient."
+                "Your appeal has been received and is pending staff review.\n\n"
+                "A staff member will assess your case and forward it to the Ban Team. "
+                "You will be notified here once a verdict is reached.\n\n"
+                "Please be patient and do not submit further appeals while this one is open."
             ),
             color=COLOUR_INFO,
+        )
+        notice_embed.set_author(
+            name="North Florida Police Department  |  Ban Appeals",
+            icon_url=BOT_AVATAR_URL,
         )
         notice_embed.set_footer(text=f"Appeal ID: {appeal_id}  |  NFPD Ban Appeals")
         notice_embed.timestamp = discord.utils.utcnow()
@@ -172,7 +176,10 @@ def _build_appeal_embed(
         title=f"Case File  |  Appeal #{appeal_id}",
         color=COLOUR_PRIMARY,
     )
-    embed.set_author(name="NFPD Ban Appeals  |  Staff Review")
+    embed.set_author(
+        name="North Florida Police Department  |  Staff Review",
+        icon_url=BOT_AVATAR_URL,
+    )
     embed.add_field(name="Roblox Username", value=f"`{roblox_username}`", inline=True)
     embed.add_field(name="Discord Tag", value=discord_tag, inline=True)
     embed.add_field(name="Submitted By", value=appellant.mention, inline=True)

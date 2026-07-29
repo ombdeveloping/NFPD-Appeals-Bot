@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import (
+    BOT_AVATAR_URL,
     VOTING_HOURS,
     COLOUR_INFO,
     COLOUR_VOTING,
@@ -116,7 +117,10 @@ class AppealsCog(commands.Cog):
             title=f"Appeal #{appeal_id}",
             color=_status_colour(status),
         )
-        embed.set_author(name="NFPD Appeals  |  Case File")
+        embed.set_author(
+            name="North Florida Police Department  |  Case File",
+            icon_url=BOT_AVATAR_URL,
+        )
 
         status_display = status.replace("_", " ").title()
         status_indicator = _status_indicator(status)
